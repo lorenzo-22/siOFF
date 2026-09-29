@@ -62,11 +62,22 @@ jobs:
         run: uv run --no-sync zensical build --strict
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # macOS on the oldest and newest Python. `macos-latest` (Apple Silicon)
+        # is the runner risearch itself tests and builds its wheels on, so this
+        # covers exactly the platform its published wheel targets. An Intel run
+        # (macos-15-intel, risearch built from source) passed once on
+        # 2026-09-29 but is not kept: risearch does not test there.
+        include:
+          - os: macos-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.14"
     steps:
       - uses: actions/checkout@v4
       - name: Install uv + Python
