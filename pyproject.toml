@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]  # PEP 639 license expression + license-files
 build-backend = "hatchling.build"
 
 [project]
@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "siOFF — siRNA off-target discovery pipeline for analyzing RIsearch2 predictions"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "BUSL-1.1"
+license-files = ["LICENSE"]
 authors = [{ name = "Lorenzo Favaro", email = "lorenzo@rth.dk" }]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -30,6 +31,11 @@ dependencies = [
   "pyarrow",
   "pyyaml",
   "rich>=14.3.0",
+  # Exact pin: risearch is an alpha series whose Python API and search results
+  # can change between alphas. Bump deliberately, after re-running the test
+  # suite and comparing search output on the fixtures (see README, "The
+  # risearch dependency").
+  "risearch==3.0.0a4",
   "typer",
   "viennaRNA==2.7.2",
 ]
@@ -43,33 +49,6 @@ Issues = "https://github.com/lorenzo-22/siOFF/issues"
 sioff = "sioff.cli:entrypoint"
 
 [dependency-groups]
-# The `risearch` PyO3 bindings power the in-process `index` / `search` commands
-# and are part of the intended default install (see tool.uv.default-groups
-# below, which makes plain `uv sync` include them).
-#
-# They live in a PEP 735 dependency group, NOT [project.dependencies], only
-# because `risearch` is not yet on PyPI: a `git+ssh` direct reference in
-# published metadata is rejected by PyPI, whereas a dependency group is
-# resolver-only and never reaches the wheel/sdist `Requires-Dist`. Once
-# `risearch` is published on PyPI, move it into [project.dependencies] as a
-# normal version pin so `pip install sioff` pulls it in.
-#
-# Both siOFF and `risearch` are licensed BUSL-1.1 — see the License section of
-# README.md.
-#
-# The commit is pinned rather than tracking a branch so installs are
-# reproducible; bump it deliberately, after verifying the bindings still match
-# and checking what search results do.
-#
-# NOTE on `penalty`: siOFF does not pass it, so it inherits upstream's default.
-# That default changed 3.5 -> 0.0 in 3.0.0a2, and 0.0.0a1 applied it with the
-# wrong sign (a flat -2x penalty that *improved* the energy). Net effect of the
-# 0.0.0a1 -> 3.0.0a2 bump on our fixtures: E_min -40.2956 -> -33.2956, 800 ->
-# 700 hits. At penalty=0 the two versions are bit-identical, so this is a
-# correctness fix, not drift. See saiden89/risearch#27.
-risearch = [
-  "risearch @ git+ssh://git@github.com/saiden89/risearch.git@1a03a473c58047dbb3895ec3fd6734968e2e979a#subdirectory=bindings/python",
-]
 dev = [
   "pre-commit",
   # Pinned: pyrefly is the blocking type-check gate; an unpinned upgrade could
@@ -92,8 +71,8 @@ testpaths = ["tests"]
 project-includes = ["src", "scripts"]
 # Type-check against the lowest supported version to catch newer-stdlib usage.
 python-version = "3.11"
-# `risearch` comes from a dependency group (not published metadata), imported lazily.
-# Treat it as `Any` so type-checking passes whether or not it is installed.
+# `risearch` is a compiled extension imported lazily; treat it as `Any` so the
+# type check does not depend on its generated stub.
 replace-imports-with-any = ["risearch"]
 
 [tool.hatch.build.targets.wheel]
@@ -101,7 +80,4 @@ packages = ["src/sioff"]
 
 [tool.uv]
 package = true
-# Plain `uv sync` installs the risearch bindings alongside dev tooling, so the
-# in-process index/search commands work out of the box for repo users. (PyPI
-# users get them once risearch is published there — see the note above.)
-default-groups = ["dev", "risearch"]
+default-groups = ["dev"]

@@ -22,9 +22,8 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: true
-      # Core install only (risearch is in default-groups but needs an SSH key
-      # CI does not have). --frozen installs exactly what uv.lock pins.
-      - run: uv sync --frozen --no-group risearch
+      # --frozen installs exactly what uv.lock pins (risearch included, from PyPI).
+      - run: uv sync --frozen
       - name: Ruff lint
         run: uv run --no-sync ruff check src/ tests/ scripts/
       - name: Ruff format check
@@ -39,9 +38,8 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: true
-      - run: uv sync --frozen --no-group risearch
-      # pyrefly config lives in [tool.pyrefly] (checks src/, treats the
-      # `risearch` group as Any so this passes without it installed).
+      - run: uv sync --frozen
+      # pyrefly config lives in [tool.pyrefly] (checks src/ and scripts/).
       - name: Pyrefly type check
         run: uv run --no-sync pyrefly check
 
@@ -60,8 +58,8 @@ jobs:
           enable-cache: true
       # --frozen resolves the correct per-version dependency set from the
       # single universal uv.lock for this matrix.python-version.
-      - run: uv sync --frozen --no-group risearch
-      # risearch-dependent tests auto-skip (pytest.importorskip) since the
-      # `risearch` group is not installed here (no SSH key in CI).
+      - run: uv sync --frozen
+      # risearch comes from PyPI now, so the in-process index/search tests run
+      # here too instead of auto-skipping.
       - name: Pytest
         run: uv run --no-sync pytest -q
