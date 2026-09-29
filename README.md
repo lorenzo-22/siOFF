@@ -2,6 +2,8 @@
 
 siOFF — siRNA off-target discovery pipeline.
 
+Documentation (usage guide, changelog and API reference): <https://lorenzo-22.github.io/siOFF/>
+
 A bioinformatics pipeline for **siRNA off-target discovery and probability quantification**. Integrates RNA-RNA interaction predictions with transcriptome annotations, RNA accessibility profiling, and thermodynamic modeling to rank off-target binding sites.
 
 siOFF is a from-scratch re-implementation of the siRNA off-target discovery

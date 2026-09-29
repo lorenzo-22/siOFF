@@ -1,0 +1,83 @@
+# Configuration for the API documentation site (https://lorenzo-22.github.io/siOFF/),
+# built by zensical + mkdocstrings from the docstrings of the public surface.
+# Build locally with `uv sync --group docs && uv run zensical build --clean`;
+# `.github/workflows/docs.yml` publishes it on every push to main.
+# Mirrors the sibling risearch project's setup (bindings/python/zensical.toml).
+
+[project]
+site_name = "siOFF"
+site_description = "siOFF — siRNA off-target discovery pipeline for analyzing RIsearch2 predictions"
+site_url = "https://lorenzo-22.github.io/siOFF/"
+repo_url = "https://github.com/lorenzo-22/siOFF"
+repo_name = "lorenzo-22/siOFF"
+docs_dir = "docs"
+nav = [
+  { "Overview" = "index.md" },
+  { "Changelog" = "changelog.md" },
+  { "API reference" = "api.md" },
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.arithmatex.generic = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+# docs/index.md and docs/changelog.md are not copies: they include the root
+# README.md / CHANGELOG.md via `--8<-- "README.md"` snippets. `base_path` is
+# the repo root (the build runs from the directory holding this file) and
+# `check_paths` makes a wrong snippet path fail the build instead of rendering
+# the literal marker.
+pymdownx.snippets.base_path = ["."]
+pymdownx.snippets.check_paths = true
+# The README has a mermaid flowchart.
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "numpy"
+filters = "public"
+separate_signature = true
+show_root_heading = true
+show_signature_annotations = true

@@ -1,7 +1,12 @@
 """Pure core for RIsearch index/search.
 
-Wraps :class:`RIsearchService` without any CLI side-effects (no stdout, no file
-writes beyond the index binary itself). Returns in-memory objects.
+Wraps `sioff.services.risearch_service.RIsearchService` without any CLI
+side-effects (no stdout, no file writes beyond the index binary itself) and
+returns in-memory objects. [`parse_seed_spec`][sioff.core.risearch.parse_seed_spec] turns the RIsearch2 ``-s``
+seed string into the ``seed_start``/``seed_end``/``seed_length`` arguments of
+[`run_search`][sioff.core.risearch.run_search].
+
+The public wrappers are [`sioff.index`][sioff.index] and [`sioff.search`][sioff.search].
 """
 
 import re
@@ -18,14 +23,40 @@ _SEED_SPEC = re.compile(r"^\s*(?:(\d+):(\d+))?(?:/?(\d+))?\s*$")
 def parse_seed_spec(spec: str) -> Tuple[Optional[int], Optional[int], int]:
     """Parse a RIsearch2 ``-s`` seed specification into ``(start, end, length)``.
 
-    Accepts the two forms the RIsearch2 CLI accepts, so a command line can be
-    copied between the two without translation:
+    Accepts the forms the RIsearch2 CLI accepts, so a command line can be
+    copied between the two without translation (CLI ``-s/--seed``):
 
-    ``"7"``      length only, no positional constraint -> ``(None, None, 7)``
-    ``"2:8/7"``  seed must lie in query positions 2..8 and be 7 nt -> ``(2, 8, 7)``
-    ``"2:8"``    positions given, length defaults to the window width -> ``(2, 8, 7)``
+    - ``"7"``: length only, no positional constraint -> ``(None, None, 7)``
+    - ``"2:8/7"``: seed must lie in query positions 2..8 and be 7 nt
+      -> ``(2, 8, 7)``
+    - ``"2:8"``: positions given, length defaults to the window width
+      -> ``(2, 8, 7)``
 
-    Positions are 1-based and inclusive, matching RIsearch2.
+    Positions are 1-based and inclusive, matching RIsearch2. Surrounding
+    whitespace is ignored.
+
+    Parameters
+    ----------
+    spec : str
+        Seed specification: ``"l"``, ``"n:m"`` or ``"n:m/l"``.
+
+    Returns
+    -------
+    tuple[int or None, int or None, int]
+        ``(seed_start, seed_end, seed_length)`` ready to pass to
+        [`run_search`][sioff.core.risearch.run_search]; ``seed_start`` and ``seed_end`` are ``None`` for the
+        length-only form.
+
+    Raises
+    ------
+    RIsearchError
+        When ``spec`` is empty, does not match any of the three forms, or gives
+        neither positions nor a length.
+
+    See Also
+    --------
+    run_search : Consumes the returned triple.
+    sioff.search : Public wrapper around [`run_search`][sioff.core.risearch.run_search].
     """
     m = _SEED_SPEC.match(spec)
     if not m or spec.strip() == "":
@@ -45,9 +76,36 @@ def parse_seed_spec(spec: str) -> Tuple[Optional[int], Optional[int], int]:
 def build_index(target: Path, output: Optional[Path] = None) -> Path:
     """Build (or reuse) a RIsearch index for a target FASTA.
 
-    The index is a binary on-disk artifact consumed by :func:`run_search`, so this
-    returns its :class:`Path` rather than in-memory data. Reuses an existing index
-    if it is newer than the target.
+    The index is a binary on-disk artifact consumed by [`run_search`][sioff.core.risearch.run_search], so
+    this returns its `Path` rather than in-memory data. An
+    existing index at the output path is reused when it is newer than the
+    target and rebuilt otherwise. The target is registered against the index
+    so that a later [`run_search`][sioff.core.risearch.run_search] in the same process can resolve target
+    names without ``target``.
+
+    Exceptions from the underlying
+    `index_target`
+    propagate unchanged: `FileNotFoundError` when ``target`` does not
+    exist, and `RIsearchError` when
+    the risearch bindings fail to build the index.
+
+    Parameters
+    ----------
+    target : pathlib.Path
+        Target FASTA to index (CLI positional ``target``).
+    output : pathlib.Path, optional
+        Index path (CLI ``-o/--output``). Defaults to ``<target>.idx`` next to
+        the target file.
+
+    Returns
+    -------
+    pathlib.Path
+        Path of the (new or reused) index file.
+
+    See Also
+    --------
+    sioff.index : Public wrapper accepting ``str`` paths.
+    run_search : Searches against the index built here.
     """
     target = Path(target)
     output = Path(output) if output is not None else None
@@ -68,13 +126,78 @@ def run_search(
 ) -> pl.DataFrame:
     """Run a RIsearch search and return hits as a Polars DataFrame.
 
-    Columns: ``sirna_id, chrom, start, end, strand, energy``. ``target`` is required
-    when the index was built outside this process (needed to resolve target names).
+    ``target`` is required when the index was built outside this process (it
+    is needed to resolve RIsearch's integer target indices to sequence names);
+    after [`build_index`][sioff.core.risearch.build_index] in the same process it may be omitted.
 
-    ``seed_start``/``seed_end``/``seed_length`` are the ``-s n:m/l`` seed spec,
-    ``seed_wobble=False`` is ``--noGUseed``, and ``matrix`` is ``-z`` (a bundled
-    id or the path of a custom DSM TSV table). See
-    :meth:`RIsearchService.run_search` for the measured effect of each.
+    Seed geometry and energy-model parameters mirror the RIsearch2 CLI.
+    ``seed_start``/``seed_end``/``seed_length`` are the ``-s n:m/l`` seed spec:
+    the seed must fall within query positions ``n..m`` and be ``l`` nt long;
+    leaving ``seed_start``/``seed_end`` as ``None`` constrains length only,
+    which is RIsearch's default behaviour. ``seed_wobble=False`` is
+    ``--noGUseed`` and forbids G:U wobble pairs inside the seed; this affects
+    seed location only, not the energy model, so it is a candidate-generation
+    knob rather than a rescoring one. Measured on 3,826 fly S2 3'UTRs x 10
+    miRNAs it removes 84.7% of hits (783,836 -> 119,928). ``matrix`` is ``-z``,
+    the nearest-neighbour energy parameter set: a bundled id or the path of a
+    custom DSM TSV table.
+
+    Exceptions from the underlying
+    `run_search`
+    propagate unchanged: `FileNotFoundError` when ``query`` or ``index``
+    does not exist, and `RIsearchError`
+    when ``target`` is needed but missing, the seed geometry is invalid,
+    ``matrix`` is neither a bundled id nor an existing file, or the risearch
+    bindings fail.
+
+    Parameters
+    ----------
+    query : pathlib.Path
+        Query siRNA FASTA (CLI positional ``query``).
+    index : pathlib.Path
+        Pre-built RIsearch index, typically from [`build_index`][sioff.core.risearch.build_index] (CLI
+        positional ``index``).
+    target : pathlib.Path, optional
+        Target FASTA the index was built from (CLI ``-t/--target``). Required
+        when the index was built externally or in another process.
+    seed_length : int, default 6
+        Seed length ``l`` in nt (the ``l`` of CLI ``-s/--seed``).
+    max_extension : int, default 20
+        Maximum extension length on each side of the seed (CLI
+        ``-e/--max-extension``).
+    energy_threshold : float, default -10.0
+        Energy threshold in kcal/mol; only hits below this value are kept (CLI
+        ``-E/--energy``).
+    seed_start : int, optional
+        First allowed 1-based query position of the seed (the ``n`` of ``-s
+        n:m/l``). Must be given together with ``seed_end``.
+    seed_end : int, optional
+        Last allowed 1-based query position of the seed, inclusive (the ``m``
+        of ``-s n:m/l``). Must be given together with ``seed_start``.
+    seed_wobble : bool, default True
+        Allow G:U wobble pairs inside the seed. ``False`` is RIsearch2's
+        ``--noGUseed`` (CLI ``--no-gu-seed``).
+    matrix : str or pathlib.Path, default "t04"
+        Nearest-neighbour energy parameter set (CLI ``-z/--matrix``): one of
+        the bundled ids ``"t04"`` (Turner 2004, RNA-RNA), ``"slh04"``
+        (SantaLucia-Hicks 2004, DNA-DNA), ``"s95-rna-dna"`` or
+        ``"s95-dna-rna"`` (Sugimoto 1995, RNA/DNA hybrids), or the path of a
+        custom long-form DSM TSV table with columns
+        ``q1 q2 t1 t2 delta_g_kcal_per_mol``.
+
+    Returns
+    -------
+    polars.DataFrame
+        One row per hit with columns ``sirna_id, chrom, start, end, strand,
+        energy`` (the schema [`sioff.off_targets`][sioff.off_targets] accepts as
+        ``predictions``).
+
+    See Also
+    --------
+    sioff.search : Public wrapper accepting ``str`` paths.
+    parse_seed_spec : Builds ``seed_start``/``seed_end``/``seed_length`` from
+        a ``-s`` string.
+    build_index : Builds the ``index`` argument.
     """
     return RIsearchService().run_search(
         query_path=Path(query),

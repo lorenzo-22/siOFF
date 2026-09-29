@@ -43,6 +43,24 @@ jobs:
       - name: Pyrefly type check
         run: uv run --no-sync pyrefly check
 
+  # The API reference site (zensical.toml, .github/workflows/docs.yml) is built
+  # from the docstrings. --strict turns every build warning into a failure, so
+  # a docstring mkdocstrings cannot parse, an object `::: sioff...` cannot
+  # resolve, or a broken `--8<--` snippet path reddens the PR here instead of
+  # breaking the published site after merge.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv + Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - run: uv sync --frozen --group docs
+      - name: Build docs (strict)
+        run: uv run --no-sync zensical build --strict
+
   test:
     runs-on: ubuntu-latest
     strategy:
