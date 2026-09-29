@@ -1,0 +1,106 @@
+name: Release
+
+# Publish to PyPI and create a GitHub release when a version tag is pushed.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Publishing uses PyPI trusted publishing (OIDC): no API token is stored in the
+# repository. The `pypi` environment below must be registered once on PyPI as a
+# trusted publisher for this repository and workflow file
+# (https://docs.pypi.org/trusted-publishers/), and PyPI then records for each
+# uploaded file that it was built by this workflow.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv + Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      # The tag is the single source of truth for the release; refuse to publish
+      # a tag whose version does not match pyproject.toml.
+      - name: Check tag matches project version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(uvx --from toml-cli toml get --toml-path pyproject.toml project.version)"
+          if [ "$tag" != "$version" ]; then
+            echo "tag v$tag does not match pyproject.toml version $version" >&2
+            exit 1
+          fi
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Check distribution metadata
+        run: uvx twine check dist/*
+      # Smoke test: the wheel installs from scratch with its published
+      # dependencies and the CLI entrypoint runs.
+      - name: Smoke test the wheel
+        run: |
+          uv venv smoke
+          VIRTUAL_ENV="$PWD/smoke" uv pip install dist/*.whl
+          smoke/bin/sioff --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sioff/
+    permissions:
+      id-token: write  # OIDC token for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      # Release notes are the tagged version's section of CHANGELOG.md
+      # (Keep a Changelog layout: "## [X.Y.Z] - date"). A missing section fails
+      # the job rather than shipping a release with empty notes.
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/     { inside = index($0, "[" v "]") > 0; next }
+            /^\[.*\]: /  { next }   # link-reference lines at the end of the file
+            inside       { print }
+          ' CHANGELOG.md | sed '/./,$!d' > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no '## [$version]' section" >&2
+            exit 1
+          fi
+          cat notes.md
+      - name: Create GitHub release with the built distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *a*|*b*|*rc*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            $prerelease

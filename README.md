@@ -60,39 +60,35 @@ can be skipped entirely if you already have RIsearch2 prediction files —
 
 - **Python ≥ 3.11** (tested on 3.11–3.14)
 - **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
-- For the full install (in-process `index`/`search`): **SSH access to the
-  private `risearch` repository** and a **Rust toolchain**
-  ([rustup](https://rustup.rs)) to build its PyO3 bindings
-- ViennaRNA is installed automatically as a Python dependency (pinned 2.7.2) —
-  no system-level install needed
+- `risearch` and ViennaRNA are installed automatically as Python dependencies
+  (pinned `3.0.0a4` and `2.7.2`) — no system-level install needed. Prebuilt
+  `risearch` wheels cover Linux x86_64 and Apple Silicon macOS; other platforms
+  build it from source, which needs a **Rust toolchain** ([rustup](https://rustup.rs))
 
 ### Install
 
 ```bash
-git clone git@github.com:lorenzo-22/siOFF.git
-cd siOFF
-
-# Create virtual environment and install dependencies
-uv venv && source .venv/bin/activate
-uv sync    # full pipeline, including the in-process index/search commands
+pip install sioff          # or: uv pip install sioff
 
 # Verify
 sioff --help
 ```
 
-Plain `uv sync` installs the complete pipeline: the `risearch` dependency group
-is part of `tool.uv.default-groups`, so the in-process `index` / `search`
-commands work out of the box. Installing it requires SSH access to the private
-`risearch` repository and a Rust toolchain. Without that access:
+The PyPI distribution name and the import name are both **`sioff`**. One install
+gives you the complete pipeline: `off-targets` / `accessibility` on pre-computed
+RIsearch2 predictions **and** the in-process `index` / `search` commands (plus
+the `--sirna-fasta` in-process mode of `off-targets`).
+
+For development, from a clone:
 
 ```bash
-uv sync --no-group risearch
+git clone git@github.com:lorenzo-22/siOFF.git
+cd siOFF
+uv sync                    # runtime deps + dev tooling (ruff, pyrefly, pytest)
+uv run sioff --help
 ```
 
-installs the core `off-targets` / `accessibility` pipeline, which runs on
-pre-computed RIsearch2 predictions (`risearch` is imported lazily and only
-needed for `index` / `search` and the `--sirna-fasta` in-process mode).
-See [The `risearch` dependency](#the-risearch-dependency) for details.
+See [RIsearch](#risearch) for how the in-process engine is pinned.
 
 ---
 
@@ -101,7 +97,7 @@ See [The `risearch` dependency](#the-risearch-dependency) for details.
 The repository ships a small, internally consistent example dataset in
 [`examples/data/`](examples/data): a 6 kb toy genome, 5 siRNAs, an annotation
 with expression values, pre-computed RIsearch predictions, and pre-computed
-accessibility profiles. This run works on the core install (no `risearch`
+accessibility profiles. This run never calls `risearch` (no `risearch`
 needed) and takes a few seconds:
 
 ```bash
@@ -156,8 +152,7 @@ The full column list is documented in [Output](#output).
 
 The quick start consumed pre-computed predictions and accessibility profiles.
 This example rebuilds both from the raw example FASTA files — the same three
-stages you will run on your own data. It requires the full install (the
-`risearch` group).
+stages you will run on your own data.
 
 ```bash
 # 1 · Fold: accessibility profiles, one Parquet file per chromosome
@@ -215,8 +210,8 @@ Standalone prediction (stage 1 by itself) is also available as
    `RPKM`) — annotate your GTF with RPKM/TPM values from your expression data
    first. Sites that don't overlap any feature are dropped.
 4. Either **pre-computed RIsearch2 predictions** (TSV / `.out.gz` / directory
-   of per-siRNA Parquet files) **or** the full install so siOFF can run
-   RIsearch itself.
+   of per-siRNA Parquet files) **or** a siRNA FASTA plus target FASTA so siOFF
+   can run RIsearch itself in-process.
 5. Optional: a TSV mapping `sirna_id → transcript_id` (`--on-target-ids`) so
    each siRNA's intended target enters the partition function as the on-target
    term.
@@ -292,54 +287,14 @@ python scripts/run_pipeline.py --config example_yaml/run-pipeline.example.yaml -
 python scripts/run_pipeline.py --config example_yaml/run-pipeline.example.yaml --slurm
 ```
 
-Slurm resources come from the YAML config's `slurm:` key, with per-step
-overrides; CLI flags (`--partition`, `--time`, `--mem`, `--cpus-per-task`,
-`--account`) override YAML for all steps. Each step logs to
-`logs/<timestamp>/`.
-
-```yaml
-slurm:
-  partition: batch
-  account: mylab
-  accessibility:          # per-step overrides
-    time: "08:00:00"
-    mem: 32G
-    cpus_per_task: 8
-  off_targets:
-    time: "04:00:00"
-    mem: 128G
-    cpus_per_task: 16
-```
-
-#### Multiple transcriptomes (fan-out)
-
-Add a top-level `transcriptomes:` list to analyze several genomes/transcriptomes in one launch — Slurm-native, **one transcriptome per node**, run in parallel. Each entry is an independent run (its own predictions, annotation, and output); groups never mix, so the off-target probability math (`Z_s`) is unchanged. The top-level `off_targets:`/`accessibility:` blocks act as shared defaults; each group overrides its per-group fields. `index` is never fanned out.
-
-```yaml
-steps: [off-targets]
-
-off_targets:            # shared defaults for every group
-  alpha: "0.8;1.0"
-  type: gw
-
-transcriptomes:
-  - name: human         # required — job names, logs, default output
-    risearch_file: ../data/human.out
-    transcriptome: ../data/human.gtf
-    accessibility_dir: ../data/human_acc/   # precomputed
-    output: results/human.tsv               # must be unique per group
-  - name: mouse
-    risearch_file: ../data/mouse.out
-    transcriptome: ../data/mouse.gtf
-    accessibility_dir: ../data/mouse_acc/
-    output: results/mouse.tsv
-```
-
-Each group submits its own Slurm job(s) (`rip_off_targets_human`, `rip_off_targets_mouse`, …); a group's `off-targets` waits only on its own upstream jobs. To compute accessibility per group, add `accessibility` to `steps` and give each group **both** a `fasta:` and an `accessibility_dir:` (the profiles are written there and read back by that group's off-targets; both are required and validated). Omitting a group `output` defaults it to `results/<name>.tsv`.
-
-See [`example_yaml/run-pipeline.example.yaml`](example_yaml/run-pipeline.example.yaml)
-for the full orchestrator config reference; all paths resolve relative to the
-config file's directory.
+Slurm resources come from the config's `slurm:` key (per-step overrides
+allowed); the CLI flags `--partition`, `--time`, `--mem`, `--cpus-per-task` and
+`--account` override it for all steps. A top-level `transcriptomes:` list fans
+one launch out over several genomes/transcriptomes, one Slurm job per entry,
+each with its own predictions, annotation and output, so the per-siRNA
+partition functions never mix. The commented
+[`example_yaml/run-pipeline.example.yaml`](example_yaml/run-pipeline.example.yaml)
+is the full reference for both; paths resolve relative to the config file.
 
 ---
 
@@ -399,7 +354,7 @@ Available on `sioff` itself, before any subcommand.
 | `-t / --target` | Target FASTA used to build the index |
 | `-s / --seed` | Seed spec, RIsearch2 syntax: `l`, `n:m` or `n:m/l` (default: 6) |
 | `--no-gu-seed` | Forbid G:U wobble pairs inside the seed (RIsearch2 `--noGUseed`) |
-| `-z / --matrix` | Energy parameter set: `t04` (default), `t99`, `slh04`, `s95-rna-dna`, `s95-dna-rna` |
+| `-z / --matrix` | Energy parameter set: `t04` (default), `slh04`, `s95-rna-dna`, `s95-dna-rna`, or the path of a custom DSM TSV table (`q1 q2 t1 t2 delta_g_kcal_per_mol`) |
 | `-e / --max-extension` | Max extension length on each side (default: 20) |
 | `-E / --energy` | Energy threshold in kcal/mol (default: −10.0) |
 | `-o / --output` | Output TSV file (default: stdout) |
@@ -419,10 +374,10 @@ df = sioff.off_targets(risearch_file="predictions.tsv", gtf_file="annotations.gt
 # Pre-compute per-chromosome accessibility profiles → dict[chrom -> polars.DataFrame]
 profiles = sioff.accessibility(genome="genome.fa")
 
-# Build a RIsearch index → Path (needs the external 'risearch' package)
+# Build a RIsearch index → Path (risearch bindings, in-process)
 idx = sioff.index("target.fa")
 
-# Run a RIsearch search → polars.DataFrame (needs the external 'risearch' package)
+# Run a RIsearch search → polars.DataFrame (risearch bindings, in-process)
 hits = sioff.search("query.fa", "target.fa.idx", target="target.fa")
 ```
 
@@ -431,7 +386,7 @@ hits = sioff.search("query.fa", "target.fa.idx", target="target.fa")
 - `sioff.off_targets` returns a `polars.DataFrame` when given a single predictions file. With a **directory** of per-siRNA Parquet files it returns a **generator** yielding one `polars.DataFrame` per siRNA; iterate it to consume the results. Neither form writes files — the API layer returns results in memory, and writing output is the CLI's job.
 - `sioff.accessibility` likewise writes nothing: it returns `dict[chrom -> polars.DataFrame]`. Use the `accessibility` CLI command (or `sioff -c <config>`) if you want `{chrom}.accessibility.parquet` files on disk.
 - On bad input the API functions raise ordinary Python exceptions — `FileNotFoundError` or `ValueError` — not `typer.Exit`. `typer.Exit` is raised only by the CLI layer for its own argument validation.
-- `sioff.index` / `sioff.search` require the external `risearch` package — the same dependency the CLI's `index`/`search` commands need.
+- `sioff.index` / `sioff.search` call the `risearch` bindings in-process — the same dependency the CLI's `index`/`search` commands use.
 
 ---
 
@@ -481,106 +436,28 @@ partition-function statistics (`P`, `Z`, `Zoff`, with and without
 accessibility). `--summary-only` skips the per-prediction table — the old
 pipeline's default behaviour.
 
-### Legacy `.results` (optional, `--legacy-format`)
-
-```
-# On-target info for siRNA #
-# For alpha=1.0 and gamma=1.0; Pon: 0.847; Poff: 0.153; ...
-## End of on-target info ##
-```
+`--legacy-format` additionally writes the RIsearch2 pipeline's `.results`
+files, for byte-level comparison with old runs.
 
 ---
 
-## Performance
+## RIsearch
 
-| Dataset | Time | Memory |
-|---------|------|--------|
-| 1 k predictions | ~0.2 s | ~80 MB |
-| 10 k predictions | ~0.8 s | ~145 MB |
-| 100 k predictions | ~6.5 s | ~200 MB |
+The in-process `index` / `search` engine is
+[`risearch`](https://github.com/saiden89/risearch)
+([PyPI](https://pypi.org/project/risearch/),
+[docs](https://saiden89.github.io/risearch/)): the RIsearch core rewritten in
+Rust with PyO3 bindings, called in-process with no subprocess or intermediate
+files. `off-targets` and `accessibility` on pre-computed predictions never
+import it.
 
-Key optimizations:
-- **Polars** throughout — Rust-backed columnar operations, lazy query planning.
-- **Parquet accessibility profiles** — memory-mapped columnar lookup, no full-file reads.
-- **ProcessPoolExecutor with Arrow IPC** — per-siRNA files processed in parallel; workers share transcriptome pages via OS page cache.
-- **Single `group_by` pass** — all parameter-sweep columns computed in one aggregation.
+`risearch` is pinned exactly (`risearch==3.0.0a4`) because it is an alpha
+series whose API and results change between alphas; the pin is bumped
+deliberately, with the test suite and a fixture comparison, not automatically.
 
----
-
-## Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| `polars` | High-performance DataFrames |
-| `pyarrow` | Parquet I/O and Arrow IPC |
-| `viennaRNA 2.7.2` | RNA folding (`RNA.pfl_fold_up`) |
-| `numpy` | Memory-mapped array operations |
-| `biopython` | FASTA parsing |
-| `typer` | CLI framework |
-| `rich` | Progress bars and terminal output |
-| `loguru` | Structured logging |
-| `omegaconf` | YAML config loading |
-| `ncls` | Interval tree for genomic intersection |
-
-### The `risearch` dependency
-
-The `risearch` PyO3 bindings power the **in-process `index` and `search`**
-commands (computing RNA-RNA interaction predictions in-process) and are part of
-the default install. The core off-target analysis — `off-targets` and
-`accessibility` running on **pre-computed** RIsearch output (TSV / `.out.gz` /
-Parquet) — works **without** `risearch` installed; it is imported lazily.
-
-`risearch` is currently fetched from a **private** repository over SSH and is
-**not on PyPI**, so the default `uv sync` requires SSH access to that repo
-(use `uv sync --no-group risearch` without it):
-
-```
-git+ssh://git@github.com/saiden89/risearch.git@1a03a47…#subdirectory=bindings/python
-```
-
-The commit is pinned rather than tracking a branch so that installs are
-reproducible: `risearch` is a fast-moving repository whose public API and search
-results have both changed across releases, so the pin is bumped deliberately and
-verified, not automatically.
-
-### Publishing / PyPI
-
-The PyPI distribution name and the import name are both **`sioff`**
-(`pip install sioff`, `import sioff`).
-
-`risearch` is declared as a [PEP 735](https://peps.python.org/pep-0735/)
-dependency group rather than a normal dependency only because it is not yet on
-PyPI: a `git+ssh` direct reference inside `[project.dependencies]` is copied
-verbatim into the published `Requires-Dist` metadata, and PyPI rejects
-distributions carrying a direct URL. A dependency group is resolver-only and
-never reaches that metadata, so the package stays publishable while `risearch`
-remains a private git repository. Once `risearch` is published on PyPI, it moves
-into `[project.dependencies]` as a normal version pin so that
-`pip install sioff` brings in the full pipeline, in-process `index` / `search`
-included.
-
-Until then, users installing `sioff` from PyPI get the `off-targets` /
-`accessibility` pipeline; the in-process `index` / `search` commands additionally
-need `risearch` installed from git (see above).
-
----
-
-## Related: Rust RIsearch Core
-
-`risearch` is a separate Rust project providing the RIsearch core and its PyO3
-Python bindings, installed as the `risearch` dependency (see
-[Installation](#installation)). The pipeline calls the bindings **in-process** —
-no subprocess, no intermediate TSV. Features:
-
-- Suffix-array based seed-and-extend search
-- Selectable nearest-neighbour parameter sets: Turner 2004 (default) and 1999 for RNA-RNA, SantaLucia-Hicks 2004 for DNA-DNA, and Sugimoto 1995 for RNA/DNA hybrids
-- Multi-threaded parallel search via Rayon
-- SIMD-optimized alignment kernels
-
-The **previous generation** of this pipeline — RIsearch2 and its Perl-based
-siRNA off-target discovery scripts — remains available at
-[rth.dk/resources/risearch](https://rth.dk/resources/risearch); siOFF is its
-successor and reads its output files unchanged.
+The previous generation of this pipeline, RIsearch2 and its Perl scripts, is at
+[rth.dk/resources/risearch](https://rth.dk/resources/risearch); siOFF reads its
+output files unchanged.
 
 ---
 

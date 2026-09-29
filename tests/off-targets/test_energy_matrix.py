@@ -1,18 +1,19 @@
 """Energy-parameter-set (DSM) selection must cover everything risearch ships.
 
-risearch bundles five nearest-neighbour scoring models, verified against the
-installed bindings:
+risearch 3.0.0a4 bundles four nearest-neighbour scoring models, verified
+against the installed bindings (Turner 1999, `t99`, was dropped upstream in
+3.0.0a3):
 
     t04          Turner 2004            (RNA-RNA, default)
-    t99          Turner 1999            (RNA-RNA)
     slh04        SantaLucia-Hicks 2004  (DNA-DNA)
     s95-rna-dna  Sugimoto 1995          (RNA query / DNA target)
     s95-dna-rna  Sugimoto 1995          (DNA query / RNA target)
 
-siOFF previously hard-rejected everything but t04 and t99, which put the two
-Sugimoto hybrid tables out of reach — the ones that apply to DNA-based oligos.
-The choice is not cosmetic: on the shipped fixtures t04 and t99 return different
-hit counts, so it changes which off-targets are found and their energies.
+siOFF previously hard-rejected everything but the Turner tables, which put the
+two Sugimoto hybrid tables out of reach — the ones that apply to DNA-based
+oligos. The choice is not cosmetic: on the shipped fixtures the tables return
+different E_min values, so it changes which off-targets are found and their
+energies.
 """
 
 import pytest
@@ -27,7 +28,7 @@ from sioff.services.risearch_service import (
 class TestValidDsmIds:
     def test_every_model_risearch_ships_is_allowed(self):
         assert VALID_DSM_IDS == frozenset(
-            {"t04", "t99", "slh04", "s95-rna-dna", "s95-dna-rna"}
+            {"t04", "slh04", "s95-rna-dna", "s95-dna-rna"}
         )
 
     @pytest.mark.parametrize("matrix", sorted(VALID_DSM_IDS))
@@ -74,6 +75,52 @@ class TestValidDsmIds:
         assert "bogus" in message
         for valid in VALID_DSM_IDS:
             assert valid in message, f"error should list {valid}"
+        assert "TSV" in message, "error should mention the custom-table option"
+
+    def test_a_path_to_an_existing_tsv_table_is_accepted(self, tmp_path):
+        """risearch 3.0.0a4 loads a custom long-form DSM table from a TSV path.
+
+        siOFF only checks that the file exists; the table format itself is
+        risearch's business and it raises on a malformed one.
+        """
+        index = tmp_path / "g.idx"
+        index.touch()
+        (tmp_path / "q.fa").write_text(">q\nACGU\n")
+        table = tmp_path / "custom.tsv"
+        table.write_text("q1\tq2\tt1\tt2\tdelta_g_kcal_per_mol\n")
+        service = RIsearchService()
+        service._target_registry[str(index)] = tmp_path / "g.fa"
+
+        for matrix in (table, str(table)):
+            try:
+                service.run_search(
+                    query_path=tmp_path / "q.fa",
+                    index_path=index,
+                    target_fasta=tmp_path / "g.fa",
+                    matrix=matrix,
+                )
+            except RIsearchError as exc:
+                assert "unknown matrix" not in str(exc), f"{matrix!r} rejected: {exc}"
+            except Exception:
+                pass  # downstream of validation (empty index / bad table)
+
+    def test_a_missing_path_is_rejected_before_risearch_runs(self, tmp_path):
+        index = tmp_path / "g.idx"
+        index.touch()
+        (tmp_path / "q.fa").write_text(">q\nACGU\n")
+        service = RIsearchService()
+        service._target_registry[str(index)] = tmp_path / "g.fa"
+
+        with pytest.raises(RIsearchError) as excinfo:
+            service.run_search(
+                query_path=tmp_path / "q.fa",
+                index_path=index,
+                target_fasta=tmp_path / "g.fa",
+                matrix=tmp_path / "nope.tsv",
+            )
+        message = str(excinfo.value)
+        assert "nope.tsv" in message
+        assert "TSV" in message
 
     def test_the_bare_directory_name_s95_is_not_a_valid_id(self, tmp_path):
         """`s95` is the data directory; the ids are s95-rna-dna / s95-dna-rna.

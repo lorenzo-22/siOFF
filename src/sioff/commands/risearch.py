@@ -81,9 +81,11 @@ def search(
             "-z",
             help=(
                 "Nearest-neighbour energy parameter set: 't04' (Turner 2004, "
-                "RNA-RNA), 't99' (Turner 1999, RNA-RNA), 'slh04' "
+                "RNA-RNA), 'slh04' "
                 "(SantaLucia-Hicks 2004, DNA-DNA), 's95-rna-dna' or "
-                "'s95-dna-rna' (Sugimoto 1995, RNA/DNA hybrids)."
+                "'s95-dna-rna' (Sugimoto 1995, RNA/DNA hybrids), or the path "
+                "of a custom DSM TSV table (columns q1 q2 t1 t2 "
+                "delta_g_kcal_per_mol)."
             ),
         ),
     ] = "t04",

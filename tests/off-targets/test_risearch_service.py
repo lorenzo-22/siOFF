@@ -143,3 +143,32 @@ class TestSearchSingleSirna:
         # Should find some hits with negative energy
         assert energy <= 0 or energy == 0.0
         assert strand in ["+", "-"]
+
+
+def test_search_accepts_a_custom_dsm_tsv_table(tmp_path):
+    """End-to-end through risearch: a long-form DSM TSV replaces a bundled id.
+
+    The table is tiny (one stack plus the two initiation cells risearch
+    requires), so it yields no hits; the point is that the path travels from
+    siOFF to risearch untouched and is loaded as a table, not looked up as an
+    id.
+    """
+    pytest.importorskip("risearch")
+    data = Path(__file__).parent / "data"
+    table = tmp_path / "custom.tsv"
+    table.write_text(
+        "q1\tq2\tt1\tt2\tdelta_g_kcal_per_mol\n"
+        "A\tC\tU\tG\t-2.1805\n"
+        "A\t-\tU\t-\t3.0\n"
+        "-\tA\t-\tU\t2.0\n"
+    )
+    index = tmp_path / "g.idx"
+    service = RIsearchService()
+    service.index_target(data / "genome.fa", index)
+    df = service.run_search(
+        query_path=data / "sirnas.fa",
+        index_path=index,
+        target_fasta=data / "genome.fa",
+        matrix=table,
+    )
+    assert df.columns == ["sirna_id", "chrom", "start", "end", "strand", "energy"]

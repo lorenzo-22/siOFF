@@ -183,7 +183,7 @@ def search(
     seed_start: Optional[int] = None,
     seed_end: Optional[int] = None,
     seed_wobble: bool = True,
-    matrix: str = "t04",
+    matrix: Union[str, Path] = "t04",
 ) -> pl.DataFrame:
     """Run a RIsearch search and return the hits as a :class:`polars.DataFrame`.
 
@@ -191,7 +191,8 @@ def search(
     ``seed_wobble=False`` is ``--noGUseed``; both affect where seeds may be placed,
     not the energy model. ``matrix`` (``-z``) selects the nearest-neighbour
     parameter set — see :data:`sioff.services.risearch_service.VALID_DSM_IDS` for
-    the models risearch ships. These mirror the ``sioff search`` CLI options; the
+    the models risearch ships — or, given a path, loads a custom long-form DSM
+    TSV table. These mirror the ``sioff search`` CLI options; the
     defaults reproduce its behaviour.
     """
     return _risearch.run_search(

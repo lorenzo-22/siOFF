@@ -6,7 +6,7 @@ writes beyond the index binary itself). Returns in-memory objects.
 
 import re
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import polars as pl
 
@@ -64,7 +64,7 @@ def run_search(
     seed_start: Optional[int] = None,
     seed_end: Optional[int] = None,
     seed_wobble: bool = True,
-    matrix: str = "t04",
+    matrix: Union[str, Path] = "t04",
 ) -> pl.DataFrame:
     """Run a RIsearch search and return hits as a Polars DataFrame.
 
@@ -72,7 +72,8 @@ def run_search(
     when the index was built outside this process (needed to resolve target names).
 
     ``seed_start``/``seed_end``/``seed_length`` are the ``-s n:m/l`` seed spec,
-    ``seed_wobble=False`` is ``--noGUseed``, and ``matrix`` is ``-z``. See
+    ``seed_wobble=False`` is ``--noGUseed``, and ``matrix`` is ``-z`` (a bundled
+    id or the path of a custom DSM TSV table). See
     :meth:`RIsearchService.run_search` for the measured effect of each.
     """
     return RIsearchService().run_search(
