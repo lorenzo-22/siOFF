@@ -5,10 +5,13 @@ from typing import Optional
 
 import typer
 
-from sioff import __version__
 from sioff._logging import setup_logging
 from sioff.commands import accessibility, off_targets, risearch
-from sioff.config import load_config, config_to_kwargs
+
+# Startup budget: `sioff --help` must only import typer and the command
+# signatures. Everything heavy (polars, numpy, pyarrow, omegaconf, loguru, the
+# core and services) is imported inside the function that needs it; the test
+# `TestCLIStartup` in tests/off-targets/test_cli.py pins this.
 
 
 app = typer.Typer(
@@ -25,6 +28,8 @@ app.command(name="search")(risearch.search)
 def _version_callback(value: bool) -> None:
     """Print the version and exit, before any other option is processed."""
     if value:
+        from sioff import __version__
+
         typer.echo(f"sioff {__version__}")
         raise typer.Exit()
 
@@ -66,6 +71,8 @@ def main(
     setup_logging(verbose)
 
     if config is not None:
+        from sioff.config import config_to_kwargs, load_config
+
         try:
             cfg = load_config(config)
             kwargs = config_to_kwargs(cfg, cfg.command)
