@@ -225,6 +225,55 @@ def test_off_targets_predictions_and_file_together_raise() -> None:
         sioff.off_targets(predictions=predictions, risearch_file=RISEARCH_FILE)
 
 
+def test_off_targets_accepts_in_memory_accessibility(tmp_path: Path) -> None:
+    """sioff.accessibility -> sioff.off_targets(accessibility=...) matches the
+    Parquet-directory path built from the same profiles, and writes nothing."""
+    profiles = sioff.accessibility(
+        GENOME_FASTA, window_size=40, max_span=20, unpaired_prob=10
+    )
+    acc_dir = tmp_path / "acc"
+    acc_dir.mkdir()
+    for chrom, frame in profiles.items():
+        frame.write_parquet(acc_dir / f"{chrom}.accessibility.parquet")
+
+    genome_predictions = DATA_DIR / "risearch_genome_example.out"
+    from_dir = sioff.off_targets(
+        risearch_file=genome_predictions, accessibility_dir=acc_dir
+    )
+    files_before = set(tmp_path.rglob("*"))
+    from_frames = sioff.off_targets(
+        risearch_file=genome_predictions, accessibility=profiles
+    )
+
+    assert isinstance(from_frames, pl.DataFrame)
+    assert "opening_energy" in from_frames.columns
+    assert from_frames.sort(from_frames.columns).equals(from_dir.sort(from_dir.columns))
+    assert set(tmp_path.rglob("*")) == files_before, "in-memory run wrote files"
+
+
+def test_off_targets_accessibility_and_dir_together_raise(tmp_path: Path) -> None:
+    profiles = {"chr1": pl.DataFrame({"position": [1], "strand": ["+"], "u1": [1.0]})}
+    with pytest.raises(ValueError, match="accessibility"):
+        sioff.off_targets(
+            risearch_file=RISEARCH_FILE,
+            accessibility=profiles,
+            accessibility_dir=tmp_path,
+        )
+
+
+def test_off_targets_directory_mode_rejects_in_memory_accessibility(
+    tmp_path: Path,
+) -> None:
+    """Directory mode streams per-siRNA files through worker processes that
+    read profiles from disk; in-memory profiles are a single-frame feature."""
+    in_dir = tmp_path / "in"
+    in_dir.mkdir()
+    (in_dir / RISEARCH_FILE.name).write_bytes(RISEARCH_FILE.read_bytes())
+    profiles = {"chr1": pl.DataFrame({"position": [1], "strand": ["+"], "u1": [1.0]})}
+    with pytest.raises(ValueError, match="accessibility_dir"):
+        sioff.off_targets(risearch_file=in_dir, accessibility=profiles)
+
+
 def test_search_output_feeds_off_targets_in_memory(tmp_path: Path) -> None:
     """The advertised round trip: sioff.search -> sioff.off_targets, no files."""
     pytest.importorskip("risearch")

@@ -19,6 +19,7 @@ Examples::
 
     # Accessibility profiles in memory, keyed by chromosome
     profiles = sioff.accessibility(genome="genome.fa")   # dict[str, pl.DataFrame]
+    df = sioff.off_targets(predictions=hits, accessibility=profiles)
 
     # RIsearch index / search
     idx = sioff.index("target.fa")                       # Path (binary artifact)
@@ -35,7 +36,7 @@ Notes:
 """
 
 from pathlib import Path
-from typing import Iterator, Optional, Union, cast
+from typing import Iterator, Mapping, Optional, Union, cast
 
 import polars as pl
 
@@ -61,6 +62,7 @@ def off_targets(
     feature_type: str = "exon",
     expression_metric: str = "RPKM",
     transcriptome_format: str = "auto",
+    accessibility: Optional[Mapping[str, pl.DataFrame]] = None,
     accessibility_dir: Optional[Union[str, Path]] = None,
     genome_file: Optional[Union[str, Path]] = None,
     window_size: int = 80,
@@ -93,11 +95,23 @@ def off_targets(
       ``contextlib.closing``, for prompt cleanup of the worker pool).
     - ``sirna_fasta`` + ``target_fasta`` — run RIsearch in-process first.
 
+    Accessibility profiles come from at most one of ``accessibility`` (the
+    ``dict[chrom -> DataFrame]`` returned by :func:`accessibility`),
+    ``accessibility_dir`` (per-chromosome Parquet files) or ``genome_file``
+    (fold on the fly). In-memory ``accessibility`` is for the single-frame
+    forms; the directory form streams through worker processes that read
+    profiles from disk, so it takes ``accessibility_dir`` only.
+
     Writes no files. Raises ``ValueError`` / ``FileNotFoundError`` on bad input.
     """
     rf = _p(risearch_file)
 
     if rf is not None and rf.is_dir():
+        if accessibility is not None:
+            raise ValueError(
+                "a directory of predictions cannot take in-memory accessibility "
+                "profiles; write them to Parquet and pass accessibility_dir"
+            )
         core_gen = _off_targets.compute_off_targets_directory(
             input_dir=rf,
             sirna_fasta=_p(sirna_fasta),
@@ -131,6 +145,7 @@ def off_targets(
         feature_type=feature_type,
         expression_metric=expression_metric,
         transcriptome_format=transcriptome_format,
+        accessibility=accessibility,
         accessibility_dir=_p(accessibility_dir),
         genome_file=_p(genome_file),
         window_size=window_size,

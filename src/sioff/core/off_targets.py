@@ -27,7 +27,7 @@ import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Generator, Optional, cast
+from typing import Generator, Mapping, Optional, cast
 
 import polars as pl
 from loguru import logger
@@ -273,6 +273,7 @@ def compute_off_targets_single(
     feature_type: str = "exon",
     expression_metric: str = "RPKM",
     transcriptome_format: str = "auto",
+    accessibility: Optional[Mapping[str, pl.DataFrame]] = None,
     accessibility_dir: Optional[Path] = None,
     genome_file: Optional[Path] = None,
     window_size: int = 80,
@@ -303,6 +304,11 @@ def compute_off_targets_single(
     strand, energy``), ``risearch_file`` (a RIsearch2 output file), or
     ``sirna_fasta`` + ``target_fasta`` (run RIsearch in-process).
 
+    Accessibility profiles likewise come from at most one of ``accessibility``
+    (the ``dict[chrom -> DataFrame]`` that :func:`sioff.accessibility` returns),
+    ``accessibility_dir`` (per-chromosome Parquet files) or ``genome_file``
+    (fold on the fly).
+
     Returns ``(df, meta)``. Writes no files and prints nothing. Raises ``ValueError``
     on bad inputs.
     """
@@ -313,6 +319,11 @@ def compute_off_targets_single(
         raise ValueError(
             "predictions and risearch_file are two sources for the same input; "
             "pass one of them"
+        )
+    if accessibility is not None and accessibility_dir is not None:
+        raise ValueError(
+            "accessibility and accessibility_dir are two sources for the same "
+            "input; pass one of them"
         )
     is_running_risearch = (
         predictions is None and risearch_file is None and sirna_fasta is not None
@@ -470,7 +481,13 @@ def compute_off_targets_single(
         return frame, meta
 
     # --- Accessibility service selection, then probabilities ---
-    if accessibility_dir:
+    if accessibility is not None:
+        acc_service = GenomeAccessibilityService.from_frames(
+            accessibility, max_cached=4
+        )
+        prob_service = ProbabilityService(acc_service, temperature=temperature)
+        return _finish(prob_service, df)
+    elif accessibility_dir:
         acc_service = GenomeAccessibilityService(Path(accessibility_dir), max_cached=4)
         prob_service = ProbabilityService(acc_service, temperature=temperature)
         return _finish(prob_service, df)

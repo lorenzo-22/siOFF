@@ -15,6 +15,9 @@ GitHub release notes, so every release needs its section here first.
 - `sioff.off_targets(predictions=...)` takes an in-memory `polars.DataFrame`
   in the `sioff.search` schema, so `sioff.search` output feeds the analysis
   directly without an intermediate predictions file.
+- `sioff.off_targets(accessibility=...)` takes the `dict[chrom -> DataFrame]`
+  that `sioff.accessibility` returns, so the whole search → fold → score
+  pipeline can run in memory.
 - `sioff search -z/--matrix` and `sioff.search(matrix=...)` accept the path of
   a custom long-form DSM TSV table (`q1 q2 t1 t2 delta_g_kcal_per_mol`), as
   risearch 3.0.0a4 does, in addition to the bundled ids.
