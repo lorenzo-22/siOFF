@@ -1,7 +1,7 @@
 import math
 from collections import OrderedDict, defaultdict
 from pathlib import Path
-from typing import Dict, cast
+from typing import Dict, Mapping, Optional, cast
 
 import numpy as np
 import polars as pl
@@ -187,13 +187,45 @@ class GenomeAccessibilityService:
     Profiles are stored as per-chromosome Parquet files produced by
     compute_genome_accessibility() and loaded on demand into float32 numpy
     arrays. An LRU cache (max_cached slots) bounds resident memory.
+
+    :meth:`from_frames` builds a service over in-memory per-chromosome
+    DataFrames instead (the ``dict[chrom -> DataFrame]`` that
+    :func:`sioff.accessibility` returns); such a service never reads or writes
+    disk and has ``data_dir is None``.
     """
 
-    def __init__(self, data_dir: Path, max_cached: int = 4):
+    def __init__(
+        self,
+        data_dir: Optional[Path],
+        max_cached: int = 4,
+        frames: Optional[Mapping[str, pl.DataFrame]] = None,
+    ):
         self.data_dir = data_dir
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        if self.data_dir is not None:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._frames: Mapping[str, pl.DataFrame] = frames if frames is not None else {}
         self._max_cached = max_cached
         self._profiles: OrderedDict[str, np.ndarray] = OrderedDict()
+
+    def _require_dir(self) -> Path:
+        """The Parquet directory; a frame-backed service has none."""
+        if self.data_dir is None:
+            raise AccessibilityError(
+                "this accessibility service serves in-memory frames and has no "
+                "data directory"
+            )
+        return self.data_dir
+
+    @classmethod
+    def from_frames(
+        cls, frames: Mapping[str, pl.DataFrame], max_cached: int = 4
+    ) -> "GenomeAccessibilityService":
+        """Serve profiles from in-memory DataFrames, one per chromosome.
+
+        Each frame has the Parquet schema ``[position, strand, u1..uN]`` with
+        both strands stacked, exactly what :func:`sioff.accessibility` returns.
+        """
+        return cls(None, max_cached=max_cached, frames=frames)
 
     def compute_genome_accessibility(
         self,
@@ -250,7 +282,7 @@ class GenomeAccessibilityService:
 
         with ProcessPoolExecutor(max_workers=workers) as pool:
             for chrom, sequence in chromosomes:
-                out_path = str(self.data_dir / f"{chrom}.accessibility.parquet")
+                out_path = str(self._require_dir() / f"{chrom}.accessibility.parquet")
                 fut = pool.submit(
                     _fold_full_chromosome,
                     sequence,
@@ -321,7 +353,7 @@ class GenomeAccessibilityService:
 
     def _find_profile(self, chrom: str) -> Path | None:
         """Return path to the chromosome's accessibility Parquet, or None."""
-        p = self.data_dir / f"{chrom}.accessibility.parquet"
+        p = self._require_dir() / f"{chrom}.accessibility.parquet"
         return p if p.exists() else None
 
     def _ensure_profile(self, chrom: str, strand: str) -> str:
@@ -344,16 +376,27 @@ class GenomeAccessibilityService:
             self._profiles.move_to_end(profile_key)
             return profile_key
 
-        path = self._find_profile(chrom)
-        if not path:
-            raise AccessibilityError(
-                f"Profile for {chrom} not found in {self.data_dir}. "
-                f"Expected {self.data_dir / f'{chrom}.accessibility.parquet'}."
-            )
+        if chrom in self._frames:
+            source: str = f"in-memory frame for {chrom}"
+            full = self._frames[chrom]
+        else:
+            if self.data_dir is None:
+                raise AccessibilityError(
+                    f"Profile for {chrom} not found among the in-memory "
+                    f"accessibility frames ({', '.join(sorted(self._frames)) or 'none'})."
+                )
+            path = self._find_profile(chrom)
+            if not path:
+                raise AccessibilityError(
+                    f"Profile for {chrom} not found in {self.data_dir}. "
+                    f"Expected {self._require_dir() / f'{chrom}.accessibility.parquet'}."
+                )
+            source = str(path)
+            full = pl.read_parquet(path)
 
-        df = pl.read_parquet(path).filter(pl.col("strand") == strand).sort("position")
+        df = full.filter(pl.col("strand") == strand).sort("position")
         if df.height == 0:
-            raise AccessibilityError(f"No data for strand {strand!r} in {path}")
+            raise AccessibilityError(f"No data for strand {strand!r} in {source}")
 
         u_cols = sorted(
             [c for c in df.columns if c.startswith("u") and c[1:].isdigit()],
@@ -367,7 +410,7 @@ class GenomeAccessibilityService:
             arr[pos_0, col_idx] = df[col_name].to_numpy()
 
         self._profiles[profile_key] = arr
-        logger.info(f"Loaded accessibility profile for {chrom} {strand} from {path}")
+        logger.info(f"Loaded accessibility profile for {chrom} {strand} from {source}")
 
         while len(self._profiles) > self._max_cached:
             evicted_key, _ = self._profiles.popitem(last=False)

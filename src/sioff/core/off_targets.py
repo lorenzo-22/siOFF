@@ -27,11 +27,12 @@ import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Generator, Optional, cast
+from typing import Generator, Mapping, Optional, cast
 
 import polars as pl
 from loguru import logger
 
+from sioff.models import RISEARCH_COLUMNS, RISEARCH_SCHEMA
 from sioff.services.accessibility import GenomeAccessibilityService
 from sioff.services.annotation_parser import AnnotationParser
 from sioff.services.intersection_service import IntersectionService
@@ -244,8 +245,26 @@ def _downcast_schema(df: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 # Single-file / inline-RIsearch core
 # ---------------------------------------------------------------------------
+def _coerce_predictions(frame: pl.DataFrame) -> pl.DataFrame:
+    """Validate an in-memory predictions frame and cast it to RISEARCH_SCHEMA.
+
+    Extra columns are dropped and compatible dtypes (Int64 coordinates, Float64
+    energies, Categorical strings) are cast, so a frame that went through Parquet
+    or a user's own manipulation still works. Missing columns are a ValueError
+    naming them.
+    """
+    missing = [c for c in RISEARCH_COLUMNS if c not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"predictions is missing column(s) {', '.join(missing)}; expected the "
+            f"sioff.search schema {RISEARCH_COLUMNS}"
+        )
+    return frame.select(RISEARCH_COLUMNS).cast(pl.Schema(RISEARCH_SCHEMA))
+
+
 def compute_off_targets_single(
     *,
+    predictions: Optional[pl.DataFrame] = None,
     risearch_file: Optional[Path] = None,
     sirna_fasta: Optional[Path] = None,
     target_fasta: Optional[Path] = None,
@@ -254,6 +273,7 @@ def compute_off_targets_single(
     feature_type: str = "exon",
     expression_metric: str = "RPKM",
     transcriptome_format: str = "auto",
+    accessibility: Optional[Mapping[str, pl.DataFrame]] = None,
     accessibility_dir: Optional[Path] = None,
     genome_file: Optional[Path] = None,
     window_size: int = 80,
@@ -277,7 +297,17 @@ def compute_off_targets_single(
     profiler: Optional[PipelineProfiler] = None,
     accessibility_progress_callback=None,
 ) -> tuple[pl.DataFrame, dict]:
-    """Compute off-target predictions for a single predictions file (or inline RIsearch).
+    """Compute off-target predictions for one set of predictions.
+
+    The predictions come from exactly one of: ``predictions`` (an in-memory
+    DataFrame in the ``sioff.search`` schema — ``sirna_id, chrom, start, end,
+    strand, energy``), ``risearch_file`` (a RIsearch2 output file), or
+    ``sirna_fasta`` + ``target_fasta`` (run RIsearch in-process).
+
+    Accessibility profiles likewise come from at most one of ``accessibility``
+    (the ``dict[chrom -> DataFrame]`` that :func:`sioff.accessibility` returns),
+    ``accessibility_dir`` (per-chromosome Parquet files) or ``genome_file``
+    (fold on the fly).
 
     Returns ``(df, meta)``. Writes no files and prints nothing. Raises ``ValueError``
     on bad inputs.
@@ -285,16 +315,34 @@ def compute_off_targets_single(
     profiler = profiler if profiler is not None else PipelineProfiler(enabled=False)
     risearch_parser = RIsearchParser()
 
-    is_running_risearch = (sirna_fasta is not None) and (risearch_file is None)
-    if risearch_file is None and sirna_fasta is None:
-        raise ValueError("Must provide either risearch_file (a file) or sirna_fasta")
+    if predictions is not None and risearch_file is not None:
+        raise ValueError(
+            "predictions and risearch_file are two sources for the same input; "
+            "pass one of them"
+        )
+    if accessibility is not None and accessibility_dir is not None:
+        raise ValueError(
+            "accessibility and accessibility_dir are two sources for the same "
+            "input; pass one of them"
+        )
+    is_running_risearch = (
+        predictions is None and risearch_file is None and sirna_fasta is not None
+    )
+    if predictions is None and risearch_file is None and sirna_fasta is None:
+        raise ValueError(
+            "Must provide predictions (a DataFrame), risearch_file (a file) or "
+            "sirna_fasta"
+        )
     if is_running_risearch and target_fasta is None:
         raise ValueError(
             "sirna_fasta requires target_fasta when running RIsearch dynamically"
         )
 
     # --- Acquire predictions ---
-    if is_running_risearch:
+    if predictions is not None:
+        # Mode 0: in-memory DataFrame, typically the output of sioff.search
+        df = _coerce_predictions(predictions)
+    elif is_running_risearch:
         # Mode 1: integrated RIsearch execution
         # Guaranteed by is_running_risearch + the target_fasta check above.
         assert sirna_fasta is not None and target_fasta is not None
@@ -433,7 +481,13 @@ def compute_off_targets_single(
         return frame, meta
 
     # --- Accessibility service selection, then probabilities ---
-    if accessibility_dir:
+    if accessibility is not None:
+        acc_service = GenomeAccessibilityService.from_frames(
+            accessibility, max_cached=4
+        )
+        prob_service = ProbabilityService(acc_service, temperature=temperature)
+        return _finish(prob_service, df)
+    elif accessibility_dir:
         acc_service = GenomeAccessibilityService(Path(accessibility_dir), max_cached=4)
         prob_service = ProbabilityService(acc_service, temperature=temperature)
         return _finish(prob_service, df)

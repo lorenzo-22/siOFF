@@ -379,12 +379,15 @@ idx = sioff.index("target.fa")
 
 # Run a RIsearch search → polars.DataFrame (risearch bindings, in-process)
 hits = sioff.search("query.fa", "target.fa.idx", target="target.fa")
+
+# ... and feed hits and profiles straight into the analysis, no intermediate files
+df = sioff.off_targets(predictions=hits, accessibility=profiles, gtf_file="annotations.gtf")
 ```
 
 **Notes**
 
-- `sioff.off_targets` returns a `polars.DataFrame` when given a single predictions file. With a **directory** of per-siRNA Parquet files it returns a **generator** yielding one `polars.DataFrame` per siRNA; iterate it to consume the results. Neither form writes files — the API layer returns results in memory, and writing output is the CLI's job.
-- `sioff.accessibility` likewise writes nothing: it returns `dict[chrom -> polars.DataFrame]`. Use the `accessibility` CLI command (or `sioff -c <config>`) if you want `{chrom}.accessibility.parquet` files on disk.
+- `sioff.off_targets` takes its predictions from one of `predictions=` (a `polars.DataFrame` in the `sioff.search` schema: `sirna_id, chrom, start, end, strand, energy`), `risearch_file=` (a RIsearch2 output file) or `sirna_fasta=` + `target_fasta=` (run RIsearch in-process), and returns a `polars.DataFrame`. With a **directory** of per-siRNA files in `risearch_file=` it returns a **generator** yielding one `polars.DataFrame` per siRNA; iterate it to consume the results. No form writes files — the API layer returns results in memory, and writing output is the CLI's job.
+- `sioff.accessibility` likewise writes nothing: it returns `dict[chrom -> polars.DataFrame]`, which `sioff.off_targets(accessibility=...)` takes directly (single-frame forms only; the directory form needs `accessibility_dir=`). Use the `accessibility` CLI command (or `sioff -c <config>`) if you want `{chrom}.accessibility.parquet` files on disk.
 - On bad input the API functions raise ordinary Python exceptions — `FileNotFoundError` or `ValueError` — not `typer.Exit`. `typer.Exit` is raised only by the CLI layer for its own argument validation.
 - `sioff.index` / `sioff.search` call the `risearch` bindings in-process — the same dependency the CLI's `index`/`search` commands use.
 

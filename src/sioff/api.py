@@ -19,10 +19,14 @@ Examples::
 
     # Accessibility profiles in memory, keyed by chromosome
     profiles = sioff.accessibility(genome="genome.fa")   # dict[str, pl.DataFrame]
+    df = sioff.off_targets(predictions=hits, accessibility=profiles)
 
     # RIsearch index / search
     idx = sioff.index("target.fa")                       # Path (binary artifact)
     hits = sioff.search("query.fa", idx, target="target.fa")   # pl.DataFrame
+
+    # ... and straight into the off-target analysis, no intermediate file
+    df = sioff.off_targets(predictions=hits, gtf_file="ann.gtf")
 
 Notes:
 - ``index`` returns a :class:`~pathlib.Path`: a RIsearch index is a binary on-disk
@@ -32,7 +36,7 @@ Notes:
 """
 
 from pathlib import Path
-from typing import Iterator, Optional, Union, cast
+from typing import Iterator, Mapping, Optional, Union, cast
 
 import polars as pl
 
@@ -50,6 +54,7 @@ def _p(value: Optional[Union[str, Path]]) -> Optional[Path]:
 
 def off_targets(
     risearch_file: Optional[Union[str, Path]] = None,
+    predictions: Optional[pl.DataFrame] = None,
     sirna_fasta: Optional[Union[str, Path]] = None,
     target_fasta: Optional[Union[str, Path]] = None,
     target_index: Optional[Union[str, Path]] = None,
@@ -57,6 +62,7 @@ def off_targets(
     feature_type: str = "exon",
     expression_metric: str = "RPKM",
     transcriptome_format: str = "auto",
+    accessibility: Optional[Mapping[str, pl.DataFrame]] = None,
     accessibility_dir: Optional[Union[str, Path]] = None,
     genome_file: Optional[Union[str, Path]] = None,
     window_size: int = 80,
@@ -78,17 +84,34 @@ def off_targets(
 ) -> Union[pl.DataFrame, Iterator[pl.DataFrame]]:
     """Analyse siRNA off-target predictions, returning results in memory.
 
-    - A single predictions file (or inline RIsearch via ``sirna_fasta`` +
-      ``target_fasta``) returns one :class:`polars.DataFrame`.
-    - A *directory* passed to ``risearch_file`` returns a **generator** yielding
-      one :class:`polars.DataFrame` per siRNA (consume it fully, or wrap in
+    Predictions come from exactly one of:
+
+    - ``predictions`` — an in-memory :class:`polars.DataFrame` in the
+      :func:`search` schema (``sirna_id, chrom, start, end, strand, energy``),
+      typically the value returned by :func:`search`; returns one DataFrame.
+    - ``risearch_file`` — a RIsearch2 output file; returns one DataFrame. A
+      *directory* of per-siRNA files instead returns a **generator** yielding
+      one DataFrame per siRNA (consume it fully, or wrap in
       ``contextlib.closing``, for prompt cleanup of the worker pool).
+    - ``sirna_fasta`` + ``target_fasta`` — run RIsearch in-process first.
+
+    Accessibility profiles come from at most one of ``accessibility`` (the
+    ``dict[chrom -> DataFrame]`` returned by :func:`accessibility`),
+    ``accessibility_dir`` (per-chromosome Parquet files) or ``genome_file``
+    (fold on the fly). In-memory ``accessibility`` is for the single-frame
+    forms; the directory form streams through worker processes that read
+    profiles from disk, so it takes ``accessibility_dir`` only.
 
     Writes no files. Raises ``ValueError`` / ``FileNotFoundError`` on bad input.
     """
     rf = _p(risearch_file)
 
     if rf is not None and rf.is_dir():
+        if accessibility is not None:
+            raise ValueError(
+                "a directory of predictions cannot take in-memory accessibility "
+                "profiles; write them to Parquet and pass accessibility_dir"
+            )
         core_gen = _off_targets.compute_off_targets_directory(
             input_dir=rf,
             sirna_fasta=_p(sirna_fasta),
@@ -113,6 +136,7 @@ def off_targets(
         return (frame for frame, _meta in core_gen)
 
     df, _meta = _off_targets.compute_off_targets_single(
+        predictions=predictions,
         risearch_file=rf,
         sirna_fasta=_p(sirna_fasta),
         target_fasta=_p(target_fasta),
@@ -121,6 +145,7 @@ def off_targets(
         feature_type=feature_type,
         expression_metric=expression_metric,
         transcriptome_format=transcriptome_format,
+        accessibility=accessibility,
         accessibility_dir=_p(accessibility_dir),
         genome_file=_p(genome_file),
         window_size=window_size,
