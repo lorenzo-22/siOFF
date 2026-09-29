@@ -10,6 +10,11 @@ GitHub release notes, so every release needs its section here first.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-29
+
+First public version, published on PyPI under the name `sioff`. The entries
+below describe changes relative to the last internal pre-release build.
+
 ### Added
 
 - API reference site at <https://lorenzo-22.github.io/siOFF/>, rendered from the
@@ -44,8 +49,5 @@ GitHub release notes, so every release needs its section here first.
 - The `t99` (Turner 1999) energy parameter set, dropped upstream in risearch
   3.0.0a3. Use `t04`.
 
-## [0.1.0] - unreleased
-
-First public version, published under the name `sioff`.
-
-[Unreleased]: https://github.com/lorenzo-22/siOFF/compare/main...HEAD
+[Unreleased]: https://github.com/lorenzo-22/siOFF/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/lorenzo-22/siOFF/releases/tag/v0.1.0
