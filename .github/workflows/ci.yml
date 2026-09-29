@@ -23,7 +23,7 @@ jobs:
           python-version: "3.14"
           enable-cache: true
       # --frozen installs exactly what uv.lock pins (risearch included, from PyPI).
-      - run: uv sync --frozen
+      - run: uv sync --frozen --no-group lts
       - name: Ruff lint
         run: uv run --no-sync ruff check src/ tests/ scripts/
       - name: Ruff format check
@@ -38,7 +38,7 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --no-group lts
       # pyrefly config lives in [tool.pyrefly] (checks src/ and scripts/).
       - name: Pyrefly type check
         run: uv run --no-sync pyrefly check
@@ -57,7 +57,7 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: true
-      - run: uv sync --frozen --group docs
+      - run: uv sync --frozen --group docs --no-group lts
       - name: Build docs (strict)
         run: uv run --no-sync zensical build --strict
 
@@ -87,7 +87,7 @@ jobs:
           enable-cache: true
       # --frozen resolves the correct per-version dependency set from the
       # single universal uv.lock for this matrix.python-version.
-      - run: uv sync --frozen
+      - run: uv sync --frozen --no-group lts
       # risearch comes from PyPI now, so the in-process index/search tests run
       # here too instead of auto-skipping.
       - name: Pytest

@@ -27,7 +27,12 @@ dependencies = [
   "ncls>=0.0.63",
   "numpy>=2.4.1",
   "omegaconf>=2.3.0",
-  "polars[rtcompat]>=1.0",
+  # Plain polars, deliberately without the `rtcompat` extra: polars prefers the
+  # compat (SSE4-only) runtime over the AVX2 one whenever both are installed,
+  # so listing `polars[rtcompat]` here would make every install run the slow
+  # runtime. Old CPUs opt in with the `lts-cpu` extra below. Same floor as
+  # risearch.
+  "polars>=1.43.2",
   "pyarrow",
   "pyyaml",
   "rich>=14.3.0",
@@ -47,6 +52,14 @@ Repository = "https://github.com/lorenzo-22/siOFF"
 Issues = "https://github.com/lorenzo-22/siOFF/issues"
 Changelog = "https://github.com/lorenzo-22/siOFF/blob/main/CHANGELOG.md"
 
+[project.optional-dependencies]
+# CPUs without AVX2/FMA/BMI2 (e.g. Sandy/Ivy Bridge Xeons): `pip install
+# "sioff[lts-cpu]"`. Installs the compat polars runtime, which polars then
+# picks by itself; the risearch wheel is a baseline x86-64 build and needs
+# nothing else, but its own `lts-cpu` extra is pulled so the two packages
+# always agree on the runtime. Same extra name as risearch.
+lts-cpu = ["polars[rtcompat]", "risearch[lts-cpu]"]
+
 [project.scripts]
 sioff = "sioff.cli:entrypoint"
 
@@ -61,6 +74,12 @@ dev = [
   "scalene>=2.1.3",
   "ty",
 ]
+# The development server (Xeon E5-2650, no AVX2) needs the compat runtime, and
+# uv has no default extras, so a default group carries it: plain `uv sync` and
+# `uv run` work there. On a modern machine `uv sync --no-group lts` gives the
+# AVX2 runtime (or keep the group and set POLARS_PREFER_PKG=32). CI runs
+# `--no-group lts` so it tests what a default install gets.
+lts = ["polars[rtcompat]"]
 # API documentation site (https://lorenzo-22.github.io/siOFF/), built from the
 # docstrings by zensical + mkdocstrings. Not a default group: install with
 # `uv sync --group docs`. Mirrors the sibling risearch project's setup.
@@ -124,4 +143,4 @@ packages = ["src/sioff"]
 
 [tool.uv]
 package = true
-default-groups = ["dev"]
+default-groups = ["dev", "lts"]

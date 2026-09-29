@@ -76,6 +76,17 @@ pip install sioff          # or: uv pip install sioff
 sioff --help
 ```
 
+On a CPU without AVX2 (roughly pre-2013 Intel, e.g. Sandy/Ivy Bridge Xeons)
+the default polars runtime crashes with an illegal instruction; polars warns
+"Missing required CPU features" at import. Install the compat runtime instead:
+
+```bash
+pip install "sioff[lts-cpu]"   # SSE4-only polars runtime, for siOFF and risearch alike
+```
+
+With both runtimes installed polars picks the compat one; set
+`POLARS_PREFER_PKG=32` to force the AVX2 runtime on a machine that has it.
+
 The PyPI distribution name and the import name are both **`sioff`**. One install
 gives you the complete pipeline: `off-targets` / `accessibility` on pre-computed
 RIsearch2 predictions **and** the in-process `index` / `search` commands (plus
@@ -89,6 +100,10 @@ cd siOFF
 uv sync                    # runtime deps + dev tooling (ruff, pyrefly, pytest)
 uv run sioff --help
 ```
+
+`uv sync` also installs the compat polars runtime (the `lts` dependency group,
+on by default because the development server has no AVX2). On a modern machine
+use `uv sync --no-group lts` for the AVX2 runtime; CI does the same.
 
 See [RIsearch](#risearch) for how the in-process engine is pinned.
 
