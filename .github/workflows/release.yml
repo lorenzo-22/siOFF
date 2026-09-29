@@ -78,6 +78,22 @@ jobs:
         with:
           name: dist
           path: dist/
+      # Release notes are the tagged version's section of CHANGELOG.md
+      # (Keep a Changelog layout: "## [X.Y.Z] - date"). A missing section fails
+      # the job rather than shipping a release with empty notes.
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/     { inside = index($0, "[" v "]") > 0; next }
+            /^\[.*\]: /  { next }   # link-reference lines at the end of the file
+            inside       { print }
+          ' CHANGELOG.md | sed '/./,$!d' > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no '## [$version]' section" >&2
+            exit 1
+          fi
+          cat notes.md
       - name: Create GitHub release with the built distributions
         env:
           GH_TOKEN: ${{ github.token }}
@@ -86,5 +102,5 @@ jobs:
           case "$GITHUB_REF_NAME" in *a*|*b*|*rc*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file notes.md \
             $prerelease

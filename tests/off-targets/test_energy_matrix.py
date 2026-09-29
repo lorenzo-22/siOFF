@@ -75,6 +75,52 @@ class TestValidDsmIds:
         assert "bogus" in message
         for valid in VALID_DSM_IDS:
             assert valid in message, f"error should list {valid}"
+        assert "TSV" in message, "error should mention the custom-table option"
+
+    def test_a_path_to_an_existing_tsv_table_is_accepted(self, tmp_path):
+        """risearch 3.0.0a4 loads a custom long-form DSM table from a TSV path.
+
+        siOFF only checks that the file exists; the table format itself is
+        risearch's business and it raises on a malformed one.
+        """
+        index = tmp_path / "g.idx"
+        index.touch()
+        (tmp_path / "q.fa").write_text(">q\nACGU\n")
+        table = tmp_path / "custom.tsv"
+        table.write_text("q1\tq2\tt1\tt2\tdelta_g_kcal_per_mol\n")
+        service = RIsearchService()
+        service._target_registry[str(index)] = tmp_path / "g.fa"
+
+        for matrix in (table, str(table)):
+            try:
+                service.run_search(
+                    query_path=tmp_path / "q.fa",
+                    index_path=index,
+                    target_fasta=tmp_path / "g.fa",
+                    matrix=matrix,
+                )
+            except RIsearchError as exc:
+                assert "unknown matrix" not in str(exc), f"{matrix!r} rejected: {exc}"
+            except Exception:
+                pass  # downstream of validation (empty index / bad table)
+
+    def test_a_missing_path_is_rejected_before_risearch_runs(self, tmp_path):
+        index = tmp_path / "g.idx"
+        index.touch()
+        (tmp_path / "q.fa").write_text(">q\nACGU\n")
+        service = RIsearchService()
+        service._target_registry[str(index)] = tmp_path / "g.fa"
+
+        with pytest.raises(RIsearchError) as excinfo:
+            service.run_search(
+                query_path=tmp_path / "q.fa",
+                index_path=index,
+                target_fasta=tmp_path / "g.fa",
+                matrix=tmp_path / "nope.tsv",
+            )
+        message = str(excinfo.value)
+        assert "nope.tsv" in message
+        assert "TSV" in message
 
     def test_the_bare_directory_name_s95_is_not_a_valid_id(self, tmp_path):
         """`s95` is the data directory; the ids are s95-rna-dna / s95-dna-rna.

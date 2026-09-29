@@ -7,7 +7,7 @@ intermediate TSV files.
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, Union, cast
 
 import polars as pl
 from Bio import SeqIO
@@ -29,7 +29,10 @@ class RIsearchError(Exception):
 # tables are compiled into the extension module and not enumerable at runtime,
 # so the set is mirrored here to fail early with a useful message; risearch is
 # still the final authority and raises "unknown DSM id" for anything it does not
-# know. Turner 1999 (`t99`) was dropped upstream in 3.0.0a3.
+# know. Turner 1999 (`t99`) was dropped upstream in 3.0.0a3. Besides these ids
+# risearch also loads a custom long-form DSM table from a TSV path
+# (`q1 q2 t1 t2 delta_g_kcal_per_mol`, see risearch's tools/dsm); siOFF only
+# checks that the file exists and leaves the format to risearch.
 #
 #   t04          Turner 2004            RNA-RNA (default)
 #   slh04        SantaLucia-Hicks 2004  DNA-DNA
@@ -110,7 +113,7 @@ class RIsearchService:
         seed_start: Optional[int] = None,
         seed_end: Optional[int] = None,
         seed_wobble: bool = True,
-        matrix: str = "t04",
+        matrix: Union[str, Path] = "t04",
     ) -> pl.DataFrame:
         """Run RIsearch and return hits as a DataFrame (sirna_id, chrom, start, end, strand, energy).
 
@@ -131,7 +134,8 @@ class RIsearchService:
             (783,836 -> 119,928).
         ``matrix``
             the ``-z`` nearest-neighbour energy parameter set; one of
-            ``VALID_DSM_IDS`` (``t04`` by default).
+            ``VALID_DSM_IDS`` (``t04`` by default) or the path of a custom
+            long-form DSM TSV table.
         """
 
         if not query_path.exists():
@@ -146,10 +150,11 @@ class RIsearchService:
                 "build the index via index_target() first."
             )
 
-        if matrix not in VALID_DSM_IDS:
+        if str(matrix) not in VALID_DSM_IDS and not Path(matrix).is_file():
             raise RIsearchError(
-                f"unknown matrix {matrix!r}; expected one of "
-                f"{', '.join(sorted(VALID_DSM_IDS))}"
+                f"unknown matrix {str(matrix)!r}; expected one of "
+                f"{', '.join(sorted(VALID_DSM_IDS))} or the path of an existing "
+                "DSM TSV table"
             )
         if (seed_start is None) != (seed_end is None):
             raise RIsearchError(
