@@ -1,5 +1,11 @@
 # siOFF
 
+[![CI](https://github.com/lorenzo-22/siOFF/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lorenzo-22/siOFF/actions/workflows/ci.yml?query=branch%3Amain)
+[![Release](https://img.shields.io/github/v/release/lorenzo-22/siOFF?include_prereleases&sort=semver)](https://github.com/lorenzo-22/siOFF/releases)
+[![PyPI](https://img.shields.io/pypi/v/sioff)](https://pypi.org/project/sioff/)
+[![License](https://img.shields.io/badge/license-BUSL--1.1-blue)](https://github.com/lorenzo-22/siOFF/blob/main/LICENSE)
+[![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Florenzo-22%2FsiOFF%2Fmain%2Fpyproject.toml)](https://github.com/lorenzo-22/siOFF/blob/main/pyproject.toml)
+
 siOFF — siRNA off-target discovery pipeline.
 
 Documentation (usage guide, changelog and API reference): <https://lorenzo-22.github.io/siOFF/>
