@@ -10,17 +10,6 @@ GitHub release notes, so every release needs its section here first.
 
 ## [Unreleased]
 
-### Changed
-
-- The default install no longer pulls the compat (SSE4-only) polars runtime.
-  polars prefers that runtime whenever it is present, so since 0.1.0 every
-  install, AVX2 machines included, ran the slow one. `polars` is now a plain
-  dependency (floor `1.43.2`, the same as risearch); CPUs without AVX2 install
-  `sioff[lts-cpu]`, which also selects risearch's `lts-cpu` extra so the two
-  packages agree on the runtime. For development, the `lts` dependency group
-  (on by default) keeps `uv sync` working on the non-AVX2 development server;
-  CI syncs with `--no-group lts` and therefore tests the default runtime.
-
 ## [0.1.0] - 2026-09-29
 
 First public version, published on PyPI under the name `sioff`. The entries
