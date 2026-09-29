@@ -171,3 +171,72 @@ def test_accessibility_missing_genome_raises(tmp_path: Path) -> None:
     """A missing genome raises FileNotFoundError (not typer.Exit)."""
     with pytest.raises(FileNotFoundError):
         sioff.accessibility(genome=tmp_path / "does_not_exist.fa")
+
+
+# ---------------------------------------------------------------------------
+# In-memory predictions: sioff.search(...) -> sioff.off_targets(predictions=...)
+# ---------------------------------------------------------------------------
+
+
+def test_off_targets_accepts_a_predictions_dataframe() -> None:
+    """A DataFrame with the search schema is accepted in place of a file and
+    gives the same result as loading that file from disk."""
+    from sioff.services.risearch_parser import RIsearchParser
+
+    predictions = RIsearchParser().load(RISEARCH_FILE)
+    from_frame = sioff.off_targets(predictions=predictions)
+    from_file = sioff.off_targets(risearch_file=RISEARCH_FILE)
+
+    assert isinstance(from_frame, pl.DataFrame)
+    assert from_frame.height == from_file.height > 0
+    assert from_frame.columns == from_file.columns
+    assert from_frame.sort(from_frame.columns).equals(from_file.sort(from_file.columns))
+
+
+def test_off_targets_predictions_frame_may_carry_extra_columns_and_dtypes() -> None:
+    """Only the six search columns matter; extra columns are ignored and
+    compatible dtypes (Int64 coordinates, Float64 energy) are cast."""
+    from sioff.services.risearch_parser import RIsearchParser
+
+    predictions = (
+        RIsearchParser()
+        .load(RISEARCH_FILE)
+        .cast({"start": pl.Int64, "end": pl.Int64, "energy": pl.Float64})
+        .with_columns(pl.lit("x").alias("extra"))
+    )
+    df = sioff.off_targets(predictions=predictions)
+    assert isinstance(df, pl.DataFrame)
+    assert df.height > 0
+    assert "P_off_target" in df.columns
+
+
+def test_off_targets_predictions_frame_missing_columns_raises() -> None:
+    bad = pl.DataFrame({"sirna_id": ["a"], "chrom": ["c"], "energy": [-20.0]})
+    with pytest.raises(ValueError, match="start"):
+        sioff.off_targets(predictions=bad)
+
+
+def test_off_targets_predictions_and_file_together_raise() -> None:
+    """Two prediction sources are ambiguous, not silently merged or preferred."""
+    from sioff.services.risearch_parser import RIsearchParser
+
+    predictions = RIsearchParser().load(RISEARCH_FILE)
+    with pytest.raises(ValueError, match="predictions"):
+        sioff.off_targets(predictions=predictions, risearch_file=RISEARCH_FILE)
+
+
+def test_search_output_feeds_off_targets_in_memory(tmp_path: Path) -> None:
+    """The advertised round trip: sioff.search -> sioff.off_targets, no files."""
+    pytest.importorskip("risearch")
+
+    idx = sioff.index(GENOME_FASTA, tmp_path / "genome.idx")
+    hits = sioff.search(DATA_DIR / "sirnas.fa", idx, target=GENOME_FASTA)
+    assert hits.height > 0
+
+    files_before = set(tmp_path.rglob("*"))
+    df = sioff.off_targets(predictions=hits)
+
+    assert isinstance(df, pl.DataFrame)
+    assert df.height > 0
+    assert "P_off_target" in df.columns
+    assert set(tmp_path.rglob("*")) == files_before, "in-memory run wrote files"

@@ -24,6 +24,9 @@ Examples::
     idx = sioff.index("target.fa")                       # Path (binary artifact)
     hits = sioff.search("query.fa", idx, target="target.fa")   # pl.DataFrame
 
+    # ... and straight into the off-target analysis, no intermediate file
+    df = sioff.off_targets(predictions=hits, gtf_file="ann.gtf")
+
 Notes:
 - ``index`` returns a :class:`~pathlib.Path`: a RIsearch index is a binary on-disk
   artifact, so the path (not in-memory data) is the natural result.
@@ -50,6 +53,7 @@ def _p(value: Optional[Union[str, Path]]) -> Optional[Path]:
 
 def off_targets(
     risearch_file: Optional[Union[str, Path]] = None,
+    predictions: Optional[pl.DataFrame] = None,
     sirna_fasta: Optional[Union[str, Path]] = None,
     target_fasta: Optional[Union[str, Path]] = None,
     target_index: Optional[Union[str, Path]] = None,
@@ -78,11 +82,16 @@ def off_targets(
 ) -> Union[pl.DataFrame, Iterator[pl.DataFrame]]:
     """Analyse siRNA off-target predictions, returning results in memory.
 
-    - A single predictions file (or inline RIsearch via ``sirna_fasta`` +
-      ``target_fasta``) returns one :class:`polars.DataFrame`.
-    - A *directory* passed to ``risearch_file`` returns a **generator** yielding
-      one :class:`polars.DataFrame` per siRNA (consume it fully, or wrap in
+    Predictions come from exactly one of:
+
+    - ``predictions`` — an in-memory :class:`polars.DataFrame` in the
+      :func:`search` schema (``sirna_id, chrom, start, end, strand, energy``),
+      typically the value returned by :func:`search`; returns one DataFrame.
+    - ``risearch_file`` — a RIsearch2 output file; returns one DataFrame. A
+      *directory* of per-siRNA files instead returns a **generator** yielding
+      one DataFrame per siRNA (consume it fully, or wrap in
       ``contextlib.closing``, for prompt cleanup of the worker pool).
+    - ``sirna_fasta`` + ``target_fasta`` — run RIsearch in-process first.
 
     Writes no files. Raises ``ValueError`` / ``FileNotFoundError`` on bad input.
     """
@@ -113,6 +122,7 @@ def off_targets(
         return (frame for frame, _meta in core_gen)
 
     df, _meta = _off_targets.compute_off_targets_single(
+        predictions=predictions,
         risearch_file=rf,
         sirna_fasta=_p(sirna_fasta),
         target_fasta=_p(target_fasta),

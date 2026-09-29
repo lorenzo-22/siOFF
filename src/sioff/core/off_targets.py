@@ -32,6 +32,7 @@ from typing import Generator, Optional, cast
 import polars as pl
 from loguru import logger
 
+from sioff.models import RISEARCH_COLUMNS, RISEARCH_SCHEMA
 from sioff.services.accessibility import GenomeAccessibilityService
 from sioff.services.annotation_parser import AnnotationParser
 from sioff.services.intersection_service import IntersectionService
@@ -244,8 +245,26 @@ def _downcast_schema(df: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 # Single-file / inline-RIsearch core
 # ---------------------------------------------------------------------------
+def _coerce_predictions(frame: pl.DataFrame) -> pl.DataFrame:
+    """Validate an in-memory predictions frame and cast it to RISEARCH_SCHEMA.
+
+    Extra columns are dropped and compatible dtypes (Int64 coordinates, Float64
+    energies, Categorical strings) are cast, so a frame that went through Parquet
+    or a user's own manipulation still works. Missing columns are a ValueError
+    naming them.
+    """
+    missing = [c for c in RISEARCH_COLUMNS if c not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"predictions is missing column(s) {', '.join(missing)}; expected the "
+            f"sioff.search schema {RISEARCH_COLUMNS}"
+        )
+    return frame.select(RISEARCH_COLUMNS).cast(pl.Schema(RISEARCH_SCHEMA))
+
+
 def compute_off_targets_single(
     *,
+    predictions: Optional[pl.DataFrame] = None,
     risearch_file: Optional[Path] = None,
     sirna_fasta: Optional[Path] = None,
     target_fasta: Optional[Path] = None,
@@ -277,7 +296,12 @@ def compute_off_targets_single(
     profiler: Optional[PipelineProfiler] = None,
     accessibility_progress_callback=None,
 ) -> tuple[pl.DataFrame, dict]:
-    """Compute off-target predictions for a single predictions file (or inline RIsearch).
+    """Compute off-target predictions for one set of predictions.
+
+    The predictions come from exactly one of: ``predictions`` (an in-memory
+    DataFrame in the ``sioff.search`` schema — ``sirna_id, chrom, start, end,
+    strand, energy``), ``risearch_file`` (a RIsearch2 output file), or
+    ``sirna_fasta`` + ``target_fasta`` (run RIsearch in-process).
 
     Returns ``(df, meta)``. Writes no files and prints nothing. Raises ``ValueError``
     on bad inputs.
@@ -285,16 +309,29 @@ def compute_off_targets_single(
     profiler = profiler if profiler is not None else PipelineProfiler(enabled=False)
     risearch_parser = RIsearchParser()
 
-    is_running_risearch = (sirna_fasta is not None) and (risearch_file is None)
-    if risearch_file is None and sirna_fasta is None:
-        raise ValueError("Must provide either risearch_file (a file) or sirna_fasta")
+    if predictions is not None and risearch_file is not None:
+        raise ValueError(
+            "predictions and risearch_file are two sources for the same input; "
+            "pass one of them"
+        )
+    is_running_risearch = (
+        predictions is None and risearch_file is None and sirna_fasta is not None
+    )
+    if predictions is None and risearch_file is None and sirna_fasta is None:
+        raise ValueError(
+            "Must provide predictions (a DataFrame), risearch_file (a file) or "
+            "sirna_fasta"
+        )
     if is_running_risearch and target_fasta is None:
         raise ValueError(
             "sirna_fasta requires target_fasta when running RIsearch dynamically"
         )
 
     # --- Acquire predictions ---
-    if is_running_risearch:
+    if predictions is not None:
+        # Mode 0: in-memory DataFrame, typically the output of sioff.search
+        df = _coerce_predictions(predictions)
+    elif is_running_risearch:
         # Mode 1: integrated RIsearch execution
         # Guaranteed by is_running_risearch + the target_fasta check above.
         assert sirna_fasta is not None and target_fasta is not None
