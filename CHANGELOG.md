@@ -12,6 +12,12 @@ GitHub release notes, so every release needs its section here first.
 
 ### Added
 
+- API reference site at <https://lorenzo-22.github.io/siOFF/>, rendered from the
+  docstrings with Zensical and mkdocstrings and published by GitHub Actions on
+  every push to `main`. The public API (`sioff.off_targets`, `sioff.accessibility`,
+  `sioff.index`, `sioff.search`) and the `sioff.core` layer now carry complete
+  numpy-style docstrings, and CI fails on a docstring that does not match its
+  signature or that the site cannot render.
 - `sioff.off_targets(predictions=...)` takes an in-memory `polars.DataFrame`
   in the `sioff.search` schema, so `sioff.search` output feeds the analysis
   directly without an intermediate predictions file.

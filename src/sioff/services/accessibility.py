@@ -188,9 +188,9 @@ class GenomeAccessibilityService:
     compute_genome_accessibility() and loaded on demand into float32 numpy
     arrays. An LRU cache (max_cached slots) bounds resident memory.
 
-    :meth:`from_frames` builds a service over in-memory per-chromosome
+    `from_frames()` builds a service over in-memory per-chromosome
     DataFrames instead (the ``dict[chrom -> DataFrame]`` that
-    :func:`sioff.accessibility` returns); such a service never reads or writes
+    `sioff.accessibility` returns); such a service never reads or writes
     disk and has ``data_dir is None``.
     """
 
@@ -223,7 +223,7 @@ class GenomeAccessibilityService:
         """Serve profiles from in-memory DataFrames, one per chromosome.
 
         Each frame has the Parquet schema ``[position, strand, u1..uN]`` with
-        both strands stacked, exactly what :func:`sioff.accessibility` returns.
+        both strands stacked, exactly what `sioff.accessibility` returns.
         """
         return cls(None, max_cached=max_cached, frames=frames)
 
