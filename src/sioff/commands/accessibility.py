@@ -1,4 +1,3 @@
-from loguru import logger
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -13,8 +12,6 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-
-from sioff.services.accessibility import GenomeAccessibilityService
 
 
 def _make_progress(console):
@@ -83,6 +80,12 @@ def run(
     Profiles can later be consumed by the off-targets command via
     --accessibility-dir.
     """
+    # Heavy imports live here, not at module top, so `sioff --help` does not
+    # load polars/numpy/Biopython through the service (see TestCLIStartup).
+    from loguru import logger
+
+    from sioff.services.accessibility import GenomeAccessibilityService
+
     console = Console(stderr=True)
 
     # Accept str paths (Python API) as well as Path objects.

@@ -1,8 +1,11 @@
 import sys
-from loguru import logger
 
 
 def setup_logging(verbose: bool) -> None:
+    # Imported here, not at module top: loguru costs ~0.4 s that `sioff --help`
+    # (which never logs) should not pay.
+    from loguru import logger
+
     logger.remove()
     if verbose:
         logger.add(

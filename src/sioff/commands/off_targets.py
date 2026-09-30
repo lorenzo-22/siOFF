@@ -1,12 +1,9 @@
 import contextlib
 import os
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
-import polars as pl
-import pyarrow.parquet as pq
 import typer
-from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
@@ -17,17 +14,6 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
-
-from sioff.core.off_targets import (
-    _build_alpha_gamma_pairs,
-    _downcast_schema,
-    _parse_theta,
-    compute_off_targets_directory,
-    compute_off_targets_single,
-)
-from sioff.services.probability import ProbabilityService
-from sioff.services.profiling import PipelineProfiler
-from sioff.services.risearch_parser import RIsearchParser
 
 console = Console()
 
@@ -296,13 +282,33 @@ def run(
             help="Write only .summary files (partition-function stats per siRNA); skip the per-prediction output TSV/parquet. Equivalent to the old pipeline's default output.",
         ),
     ] = False,
-) -> dict | pl.DataFrame | None:
+) -> Any:
     """
     Analyze siRNA off-target predictions.
 
     Integrates RIsearch2 predictions with transcriptome data and optionally
     calculates off-target probabilities.
+
+    Returns a dict (directory mode), a polars DataFrame (single-file mode) or
+    None. Spelled ``Any`` because Typer evaluates every annotation while
+    building ``--help``, and polars is imported lazily below to keep that fast.
     """
+    # Heavy imports live here, not at module top, so `sioff --help` does not
+    # load polars/pyarrow/numpy and the core (see TestCLIStartup).
+    import pyarrow.parquet as pq
+    from loguru import logger
+
+    from sioff.core.off_targets import (
+        _build_alpha_gamma_pairs,
+        _downcast_schema,
+        _parse_theta,
+        compute_off_targets_directory,
+        compute_off_targets_single,
+    )
+    from sioff.services.probability import ProbabilityService
+    from sioff.services.profiling import PipelineProfiler
+    from sioff.services.risearch_parser import RIsearchParser
+
     # Accept str paths (Python API) as well as Path objects (CLI coerces these itself).
     risearch_file = _as_path(risearch_file)
     sirna_fasta = _as_path(sirna_fasta)

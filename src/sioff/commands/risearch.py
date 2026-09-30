@@ -1,14 +1,11 @@
 """CLI commands for running RIsearch index and search operations."""
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
-import polars as pl
 import typer
 
 from sioff._logging import setup_logging
-from sioff.core import risearch as core
-from sioff.services.risearch_service import RIsearchError
 
 
 def index(
@@ -26,6 +23,8 @@ def index(
     ] = False,
 ) -> Path:
     """Build a RIsearch index from a target FASTA file."""
+    from sioff.core import risearch as core
+
     setup_logging(verbose)
     index_path = core.build_index(target, output)
     typer.echo(f"Index written to: {index_path}")
@@ -106,8 +105,16 @@ def search(
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Enable verbose logging.")
     ] = False,
-) -> pl.DataFrame:
-    """Run a RIsearch search and output hits as TSV."""
+) -> Any:
+    """Run a RIsearch search and output hits as TSV.
+
+    Returns the hits as a polars DataFrame. Spelled ``Any`` because Typer
+    evaluates every annotation while building ``--help``, and polars is
+    imported lazily (via the core) to keep that fast.
+    """
+    from sioff.core import risearch as core
+    from sioff.services.risearch_service import RIsearchError
+
     setup_logging(verbose)
     # Seed geometry and matrix are validated before the search starts, so a bad
     # spec is a one-line CLI error rather than a traceback out of the bindings.
