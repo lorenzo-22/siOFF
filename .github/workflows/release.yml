@@ -1,6 +1,7 @@
 name: Release
 
 # Publish to PyPI and create a GitHub release when a version tag is pushed.
+# The full procedure (version bump, git-cliff changelog, tag) is in cliff.toml.
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
@@ -74,23 +75,30 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git-cliff needs the previous tag to bound the range
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
-      # Release notes are the tagged version's section of CHANGELOG.md
-      # (Keep a Changelog layout: "## [X.Y.Z] - date"). A missing section fails
-      # the job rather than shipping a release with empty notes.
-      - name: Extract release notes from CHANGELOG.md
+      # Release notes are rendered by git-cliff from the conventional commits
+      # between the previous tag and this one (cliff.toml), the same range the
+      # release commit prepended to CHANGELOG.md, so the two cannot drift. A
+      # range with no changelog entries fails the job rather than shipping a
+      # release with empty notes.
+      - name: Render release notes with git-cliff
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all
+      - name: Check the release notes are not empty
+        env:
+          NOTES: ${{ steps.cliff.outputs.content }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            /^## \[/     { inside = index($0, "[" v "]") > 0; next }
-            /^\[.*\]: /  { next }   # link-reference lines at the end of the file
-            inside       { print }
-          ' CHANGELOG.md | sed '/./,$!d' > notes.md
-          if [ ! -s notes.md ]; then
-            echo "CHANGELOG.md has no '## [$version]' section" >&2
+          printf '%s\n' "$NOTES" > notes.md
+          if ! grep -q '^- ' notes.md; then
+            echo "git-cliff rendered no entries for $GITHUB_REF_NAME" >&2
             exit 1
           fi
           cat notes.md
