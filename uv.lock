@@ -992,6 +992,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f8/d5/d836fed98205747d4c40948cf6a156e8f6717bba93db6c40d2d10c4c737d/risearch-3.0.0a4-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:a3837f412cb759bb806b485ea5b9c1b888cf24ff7a0c753777e405189ce8b6a1", size = 899365, upload-time = "2026-09-28T16:02:28.827Z" },
 ]
 
+[package.optional-dependencies]
+lts-cpu = [
+    { name = "polars", extra = ["rtcompat"] },
+]
+
 [[package]]
 name = "ruff"
 version = "0.15.12"
@@ -1065,13 +1070,19 @@ dependencies = [
     { name = "ncls" },
     { name = "numpy" },
     { name = "omegaconf" },
-    { name = "polars", extra = ["rtcompat"] },
+    { name = "polars" },
     { name = "pyarrow" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "risearch" },
     { name = "typer" },
     { name = "viennarna" },
+]
+
+[package.optional-dependencies]
+lts-cpu = [
+    { name = "polars", extra = ["rtcompat"] },
+    { name = "risearch", extra = ["lts-cpu"] },
 ]
 
 [package.dev-dependencies]
@@ -1087,6 +1098,9 @@ docs = [
     { name = "mkdocstrings-python" },
     { name = "zensical" },
 ]
+lts = [
+    { name = "polars", extra = ["rtcompat"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1095,14 +1109,17 @@ requires-dist = [
     { name = "ncls", specifier = ">=0.0.63" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "omegaconf", specifier = ">=2.3.0" },
-    { name = "polars", extras = ["rtcompat"], specifier = ">=1.0" },
+    { name = "polars", specifier = ">=1.43.2" },
+    { name = "polars", extras = ["rtcompat"], marker = "extra == 'lts-cpu'" },
     { name = "pyarrow" },
     { name = "pyyaml" },
     { name = "rich", specifier = ">=14.3.0" },
     { name = "risearch", specifier = "==3.0.0a4" },
+    { name = "risearch", extras = ["lts-cpu"], marker = "extra == 'lts-cpu'" },
     { name = "typer" },
     { name = "viennarna", specifier = "==2.7.2" },
 ]
+provides-extras = ["lts-cpu"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1117,6 +1134,7 @@ docs = [
     { name = "mkdocstrings-python" },
     { name = "zensical" },
 ]
+lts = [{ name = "polars", extras = ["rtcompat"] }]
 
 [[package]]
 name = "six"

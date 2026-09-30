@@ -34,7 +34,7 @@ jobs:
           enable-cache: true
       # --frozen installs exactly what uv.lock pins; --group docs adds
       # zensical + mkdocstrings-python on top of the default (dev) group.
-      - run: uv sync --frozen --group docs
+      - run: uv sync --frozen --group docs --no-group lts
       - name: Configure Pages
         uses: actions/configure-pages@v6
       - name: Build site
