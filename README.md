@@ -79,6 +79,8 @@ can be skipped entirely if you already have
 
 ### Install
 
+Install from [PyPI](https://pypi.org/project/sioff/):
+
 ```bash
 pip install sioff          # or: uv pip install sioff
 
