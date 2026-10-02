@@ -16,9 +16,12 @@ siOFF is a from-scratch re-implementation of the siRNA off-target discovery
 pipeline originally distributed with
 [RIsearch2](https://rth.dk/resources/risearch)
 ([Alkan *et al.*, Nucleic Acids Research 2017](https://doi.org/10.1093/nar/gkw1325)).
-It keeps the same thermodynamic model and can read the same RIsearch2
+It keeps the same thermodynamic model and still reads legacy RIsearch2
 prediction files, but replaces the original Perl/C toolchain with a single
-Python package built on Polars, adds in-process RIsearch bindings (Rust/PyO3),
+Python package built on Polars, adds in-process bindings for
+[RIsearch 3](https://github.com/saiden89/risearch) (Rust/PyO3, on
+[PyPI](https://pypi.org/project/risearch/) and
+[crates.io](https://crates.io/crates/risearch)),
 Parquet-based accessibility profiles, and a Slurm-aware orchestrator. A
 compatibility mode (`--legacy-format`) reproduces the old `.results` output.
 
@@ -57,7 +60,8 @@ flowchart LR
 
 Rounded nodes are data, rectangles are pipeline stages. Stages 1 and 2 are
 independent and can run in parallel; stage 3 combines their outputs. Stage 1
-can be skipped entirely if you already have RIsearch2 prediction files —
+can be skipped entirely if you already have
+[RIsearch](https://github.com/saiden89/risearch) prediction files —
 `sioff off-targets` reads them directly.
 
 ---
@@ -95,7 +99,7 @@ With both runtimes installed polars picks the compat one; set
 
 The PyPI distribution name and the import name are both **`sioff`**. One install
 gives you the complete pipeline: `off-targets` / `accessibility` on pre-computed
-RIsearch2 predictions **and** the in-process `index` / `search` commands (plus
+RIsearch predictions **and** the in-process `index` / `search` commands (plus
 the `--sirna-fasta` in-process mode of `off-targets`).
 
 For development, from a clone:
@@ -232,7 +236,8 @@ Standalone prediction (stage 1 by itself) is also available as
    read from an attribute of your choice (`--expression-metric`, default
    `RPKM`) — annotate your GTF with RPKM/TPM values from your expression data
    first. Sites that don't overlap any feature are dropped.
-4. Either **pre-computed RIsearch2 predictions** (TSV / `.out.gz` / directory
+4. Either **pre-computed [RIsearch](https://github.com/saiden89/risearch)
+   predictions** (TSV / `.out.gz` / directory
    of per-siRNA Parquet files) **or** a siRNA FASTA plus target FASTA so siOFF
    can run RIsearch itself in-process.
 5. Optional: a TSV mapping `sirna_id → transcript_id` (`--on-target-ids`) so
@@ -241,7 +246,7 @@ Standalone prediction (stage 1 by itself) is also available as
 
 ### Step 1 — RIsearch predictions
 
-If you already have RIsearch2 output, skip this step and pass the file (or a
+If you already have RIsearch output, skip this step and pass the file (or a
 directory of per-siRNA Parquet files, which enables parallel per-siRNA
 processing) to `-r`.
 
@@ -375,8 +380,8 @@ Available on `sioff` itself, before any subcommand.
 |------|-------------|
 | `QUERY INDEX` | Query siRNA FASTA and pre-built `.idx` (positional) |
 | `-t / --target` | Target FASTA used to build the index |
-| `-s / --seed` | Seed spec, RIsearch2 syntax: `l`, `n:m` or `n:m/l` (default: 6) |
-| `--no-gu-seed` | Forbid G:U wobble pairs inside the seed (RIsearch2 `--noGUseed`) |
+| `-s / --seed` | Seed spec, RIsearch syntax: `l`, `n:m` or `n:m/l` (default: 6) |
+| `--no-gu-seed` | Forbid G:U wobble pairs inside the seed (RIsearch `--no-seed-wobble`; legacy `--noGUseed`) |
 | `-z / --matrix` | Energy parameter set: `t04` (default), `slh04`, `s95-rna-dna`, `s95-dna-rna`, or the path of a custom DSM TSV table (`q1 q2 t1 t2 delta_g_kcal_per_mol`) |
 | `-e / --max-extension` | Max extension length on each side (default: 20) |
 | `-E / --energy` | Energy threshold in kcal/mol (default: −10.0) |
@@ -409,7 +414,7 @@ df = sioff.off_targets(predictions=hits, accessibility=profiles, gtf_file="annot
 
 **Notes**
 
-- `sioff.off_targets` takes its predictions from one of `predictions=` (a `polars.DataFrame` in the `sioff.search` schema: `sirna_id, chrom, start, end, strand, energy`), `risearch_file=` (a RIsearch2 output file) or `sirna_fasta=` + `target_fasta=` (run RIsearch in-process), and returns a `polars.DataFrame`. With a **directory** of per-siRNA files in `risearch_file=` it returns a **generator** yielding one `polars.DataFrame` per siRNA; iterate it to consume the results. No form writes files — the API layer returns results in memory, and writing output is the CLI's job.
+- `sioff.off_targets` takes its predictions from one of `predictions=` (a `polars.DataFrame` in the `sioff.search` schema: `sirna_id, chrom, start, end, strand, energy`), `risearch_file=` (a RIsearch output file) or `sirna_fasta=` + `target_fasta=` (run RIsearch in-process), and returns a `polars.DataFrame`. With a **directory** of per-siRNA files in `risearch_file=` it returns a **generator** yielding one `polars.DataFrame` per siRNA; iterate it to consume the results. No form writes files — the API layer returns results in memory, and writing output is the CLI's job.
 - `sioff.accessibility` likewise writes nothing: it returns `dict[chrom -> polars.DataFrame]`, which `sioff.off_targets(accessibility=...)` takes directly (single-frame forms only; the directory form needs `accessibility_dir=`). Use the `accessibility` CLI command (or `sioff -c <config>`) if you want `{chrom}.accessibility.parquet` files on disk.
 - On bad input the API functions raise ordinary Python exceptions — `FileNotFoundError` or `ValueError` — not `typer.Exit`. `typer.Exit` is raised only by the CLI layer for its own argument validation.
 - `sioff.index` / `sioff.search` call the `risearch` bindings in-process — the same dependency the CLI's `index`/`search` commands use.
@@ -472,6 +477,7 @@ files, for byte-level comparison with old runs.
 The in-process `index` / `search` engine is
 [`risearch`](https://github.com/saiden89/risearch)
 ([PyPI](https://pypi.org/project/risearch/),
+[crates.io](https://crates.io/crates/risearch),
 [docs](https://saiden89.github.io/risearch/)): the RIsearch core rewritten in
 Rust with PyO3 bindings, called in-process with no subprocess or intermediate
 files. `off-targets` and `accessibility` on pre-computed predictions never
